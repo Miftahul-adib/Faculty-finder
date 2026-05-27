@@ -141,6 +141,28 @@ footer,
     color: #E8E4D9 !important;
 }
 
+
+[data-testid="stChatMessage"] h1,
+[data-testid="stChatMessage"] h2,
+[data-testid="stChatMessage"] h3,
+[data-testid="stChatMessage"] h4 {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: #C8D8B0 !important;
+    margin: 1rem 0 0.3rem 0 !important;
+    line-height: 1.4 !important;
+}
+
+[data-testid="stChatMessage"] a {
+    display: none !important;
+}
+
+[data-testid="stChatMessage"] hr {
+    border-color: #3D5229 !important;
+    margin: 0.6rem 0 !important;
+}
+
 [data-testid="stChatFloatingInputContainer"],
 [data-testid="stBottomBlockContainer"],
 [data-testid="stBottomBlockContainer"] > div,
