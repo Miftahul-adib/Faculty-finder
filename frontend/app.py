@@ -125,27 +125,95 @@ footer,
     margin: 0.8rem 0 1rem 0;
 }
 
+/* ─── Claude-like chat messages ─── */
+
+/* Hide default Streamlit chat styling completely */
 [data-testid="stChatMessage"] {
-    background-color: #243318 !important;
-    border: 1px solid #3D5229 !important;
-    border-radius: 14px !important;
-    margin-bottom: 0.75rem !important;
-    padding: 0.6rem 0.85rem !important;
-    color: #E8E4D9 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
 }
 
-[data-testid="stChatMessage"] p,
-[data-testid="stChatMessage"] li,
-[data-testid="stChatMessage"] span {
+/* Hide the default avatar icons */
+[data-testid="stChatMessage"] [data-testid="chatAvatarIcon-user"],
+[data-testid="stChatMessage"] [data-testid="chatAvatarIcon-assistant"],
+[data-testid="stChatMessage"] .stChatMessageAvatarUser,
+[data-testid="stChatMessage"] .stChatMessageAvatarAssistant,
+[data-testid="stChatMessage"] > div:first-child {
+    display: none !important;
+}
+
+/* Target the message content container */
+[data-testid="stChatMessage"][data-testid*="user"] [data-testid="stMarkdownContainer"],
+[data-testid="stChatMessageContent"] {
+    display: block;
+}
+
+/* USER messages — pill bubble, right-aligned */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    padding: 0.15rem 0 !important;
+    gap: 0 !important;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] {
+    background-color: #3D5229 !important;
+    color: #F0EAD2 !important;
+    border-radius: 18px 18px 4px 18px !important;
+    padding: 0.6rem 1rem !important;
+    max-width: 80% !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.92rem !important;
+    line-height: 1.6 !important;
+    display: inline-block !important;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p {
+    color: #F0EAD2 !important;
+    margin: 0 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.92rem !important;
+}
+
+/* Copy button row under user message */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stChatMessageActionBar,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stChatMessageActionBar"] {
+    justify-content: flex-end !important;
+    margin-top: 2px !important;
+    margin-right: 2px !important;
+}
+
+/* ASSISTANT messages — clean, no box, left-aligned */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    display: block !important;
+    padding: 0.2rem 0 0.8rem 0 !important;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] p,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] li,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] span {
     font-family: 'Inter', sans-serif !important;
     color: #E8E4D9 !important;
+    font-size: 0.93rem !important;
+    line-height: 1.75 !important;
 }
 
-
-[data-testid="stChatMessage"] h1,
-[data-testid="stChatMessage"] h2,
-[data-testid="stChatMessage"] h3,
-[data-testid="stChatMessage"] h4 {
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h1,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h2,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h3,
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h4 {
     font-family: 'Inter', sans-serif !important;
     font-size: 1rem !important;
     font-weight: 600 !important;
@@ -154,15 +222,37 @@ footer,
     line-height: 1.4 !important;
 }
 
-[data-testid="stChatMessage"] a {
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] a {
     color: #A8D08D !important;
     text-decoration: underline !important;
 }
 
-[data-testid="stChatMessage"] hr {
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] hr {
     border-color: #3D5229 !important;
     margin: 0.6rem 0 !important;
 }
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] strong {
+    color: #D0DCB8 !important;
+    font-weight: 600 !important;
+}
+
+/* Subtle separator between message groups */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    margin-top: 1.2rem !important;
+}
+
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    margin-top: 0.4rem !important;
+    padding-bottom: 1.2rem !important;
+    border-bottom: 1px solid rgba(61, 82, 41, 0.3) !important;
+}
+
+[data-testid="stChatMessage"]:last-of-type:has([data-testid="chatAvatarIcon-assistant"]) {
+    border-bottom: none !important;
+}
+
+/* ─── Input area ─── */
 
 [data-testid="stChatFloatingInputContainer"],
 [data-testid="stBottomBlockContainer"],
@@ -274,6 +364,69 @@ div:has([data-testid="stChatInput"]) > div {
 </style>
 """
 
+# Inline JS to inject copy buttons under user messages
+COPY_BUTTON_JS = """
+<script>
+(function injectCopyButtons() {
+    function addCopyButtons() {
+        const userMessages = document.querySelectorAll('[data-testid="stChatMessage"]');
+        userMessages.forEach(function(msg) {
+            const avatarIcon = msg.querySelector('[data-testid="chatAvatarIcon-user"]');
+            if (!avatarIcon) return;
+            if (msg.querySelector('.copy-btn-row')) return;
+
+            const mdContainer = msg.querySelector('[data-testid="stMarkdownContainer"]');
+            if (!mdContainer) return;
+
+            const text = mdContainer.innerText || '';
+
+            const row = document.createElement('div');
+            row.className = 'copy-btn-row';
+            row.style.cssText = 'display:flex;justify-content:flex-end;margin-top:4px;';
+
+            const btn = document.createElement('button');
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy';
+            btn.style.cssText = [
+                'background:transparent',
+                'border:none',
+                'color:#8AA875',
+                'font-family:Inter,sans-serif',
+                'font-size:0.72rem',
+                'cursor:pointer',
+                'display:flex',
+                'align-items:center',
+                'gap:4px',
+                'padding:2px 4px',
+                'border-radius:5px',
+                'transition:color 0.15s'
+            ].join(';');
+
+            btn.addEventListener('mouseenter', function() { btn.style.color = '#C8D8B0'; });
+            btn.addEventListener('mouseleave', function() { btn.style.color = '#8AA875'; });
+
+            btn.addEventListener('click', function() {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied';
+                    btn.style.color = '#A8D08D';
+                    setTimeout(function() {
+                        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"></path></svg> Copy';
+                        btn.style.color = '#8AA875';
+                    }, 1500);
+                });
+            });
+
+            row.appendChild(btn);
+            msg.appendChild(row);
+        });
+    }
+
+    const observer = new MutationObserver(function() { addCopyButtons(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    addCopyButtons();
+})();
+</script>
+"""
+
 INFO_CARD_HTML = """
 <div class="info-card">
 <div class="info-heading">Before you start</div>
@@ -308,8 +461,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for msg in st.session_state.messages:
-    avatar = "👤" if msg["role"] == "user" else "🎓"
-    with st.chat_message(msg["role"], avatar=avatar):
+    # No avatars — pass empty strings to suppress default icons
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 query = st.chat_input("e.g. Find a PhD supervisor for machine learning and NLP")
@@ -324,10 +477,10 @@ if query and query.strip():
         }
     )
 
-    with st.chat_message("user", avatar="👤"):
+    with st.chat_message("user"):
         st.markdown(query)
 
-    with st.chat_message("assistant", avatar="🎓"):
+    with st.chat_message("assistant"):
         with st.spinner("Searching faculty profiles..."):
             try:
                 response = requests.post(
@@ -363,3 +516,6 @@ if query and query.strip():
             "content": answer
         }
     )
+
+# Inject copy button script after all content
+st.markdown(COPY_BUTTON_JS, unsafe_allow_html=True)
