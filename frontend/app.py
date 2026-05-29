@@ -433,6 +433,8 @@ INFO_CARD_HTML = """
 
 <p>— <strong> Please keep it to one query at a time.</strong> Running on a free API with limited credits, multiple quick queries can drain it for everyone.</p>
 
+<p>— Each question is answered independently. This system does not remember previous messages. Reloading or refreshing the page will clear all messages.</p>
+
 <p>— Describe your interest in plain language, e.g. <em>"Find me a professor in deep learning for medical imaging"</em>.The system will find the most relevant faculty matches.</p>
 
 <p>— <strong>Faculty database included: </strong>SUST. <span class="coming-soon-text">More universities coming soon.</span></p>
