@@ -3,6 +3,7 @@
 SUST Faculty Finder — RAG core
 Converted from v12 notebook (Gemma 4 via HuggingFace Inference API).
 Config is read from .env — HF_TOKEN is never hardcoded here.
+Embeddings now use HF Inference API — no sentence-transformers / torch needed.
 """
 
 import os, sqlite3, struct, gc, time
@@ -10,7 +11,6 @@ from collections import defaultdict
 from dotenv import load_dotenv
 import numpy as np
 from huggingface_hub import InferenceClient, login as hf_login
-from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -20,8 +20,9 @@ load_dotenv()
 HF_TOKEN           = os.environ["HF_TOKEN"]
 HF_PROVIDER        = os.getenv("HF_PROVIDER", "auto")
 LLM_MODEL          = os.getenv("LLM_MODEL", "google/gemma-4-26B-A4B-it")
+# ── CHANGED: full HF model ID required for Inference API ──────────────────
+EMBED_MODEL_NAME   = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 DB_PATH            = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
-EMBED_MODEL_NAME   = "all-MiniLM-L6-v2"
 TOP_K              = 25
 DEBUG              = os.getenv("DEBUG", "false").lower() == "true"
 MAX_RETRIES        = 2
@@ -29,14 +30,37 @@ _MAX_TOKENS_ROUTER = 20
 _MAX_TOKENS_ANSWER = 2500
 
 # ══════════════════════════════════════════════════════════════════════════
-#  CELL 1 — HF LOGIN + CLIENT + EMBEDDING MODEL
+#  CELL 1 — HF LOGIN + CLIENT
+#  REMOVED: SentenceTransformer — no torch/sentence-transformers needed
 # ══════════════════════════════════════════════════════════════════════════
 hf_login(token=HF_TOKEN, add_to_git_credential=False)
 hf_client = InferenceClient(token=HF_TOKEN, provider=HF_PROVIDER)
 print(f"HF client ready | model: {LLM_MODEL}")
+print(f"Embedding model : {EMBED_MODEL_NAME} (via HF Inference API)")
 
-embed_model = SentenceTransformer(EMBED_MODEL_NAME)
-print(f"Embedding model loaded: {EMBED_MODEL_NAME}")
+# ══════════════════════════════════════════════════════════════════════════
+#  EMBEDDING HELPER  (replaces SentenceTransformer)
+# ══════════════════════════════════════════════════════════════════════════
+def hf_embed(texts: list) -> np.ndarray:
+    """
+    Embed a list of texts via HF Inference API.
+    Returns an L2-normalised float32 array of shape (len(texts), hidden_dim).
+
+    Handles both return shapes from the API:
+      - 2-D (batch, hidden)       → sentence-level, use directly
+      - 3-D (batch, seq, hidden)  → token-level, mean-pool first
+    """
+    result = hf_client.feature_extraction(texts, model=EMBED_MODEL_NAME)
+    arr = np.array(result, dtype=np.float32)
+
+    # Mean-pool token dimension if the API returns token-level embeddings
+    if arr.ndim == 3:
+        arr = arr.mean(axis=1)
+
+    # L2 normalise (mirrors normalize_embeddings=True in SentenceTransformer)
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    arr = arr / np.where(norms == 0, 1.0, norms)
+    return arr
 
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 2 — DB CONNECTION + SCHEMA SETUP
@@ -132,9 +156,9 @@ def ensure_embeddings():
                 interests_map[ir["faculty_id"]].append(ir["interest"])
 
         texts = [build_embed_text(r, interests_map[r["id"]]) for r in rows]
-        vecs  = embed_model.encode(
-            texts, batch_size=32, normalize_embeddings=True, show_progress_bar=False
-        )
+
+        # ── CHANGED: hf_embed() instead of embed_model.encode() ───────────
+        vecs = hf_embed(texts)
 
         with get_conn() as con:
             for row, vec in zip(rows, vecs):
@@ -253,9 +277,8 @@ def retrieve_top_faculty(query: str, k: int = TOP_K) -> list:
     return the top-k faculty dicts with their research_summary.
     Uses module-level FAC_IDS and FAC_MATRIX — mirrors Cell 7 exactly.
     """
-    q_vec = embed_model.encode(
-        [query], normalize_embeddings=True, show_progress_bar=False
-    )[0]
+    # ── CHANGED: hf_embed() instead of embed_model.encode() ───────────────
+    q_vec = hf_embed([query])[0]
 
     sims     = FAC_MATRIX @ q_vec
     top_idx  = np.argsort(-sims)[:k]
@@ -405,6 +428,7 @@ AVAILABILITY FLAGS
   student understands they may be unavailable for supervision.
 - Do not assume availability or unavailability beyond what is stated.
 """
+
 def build_context(candidates: list) -> str:
     blocks = []
     for i, p in enumerate(candidates, 1):
