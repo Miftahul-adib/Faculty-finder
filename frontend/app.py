@@ -33,9 +33,14 @@ body,
     color: #E8E4D9 !important;
 }
 
+/* Allow sticky to work inside Streamlit's scroll container */
+[data-testid="stAppViewContainer"] > section:first-child {
+    overflow: visible !important;
+}
+
 .block-container {
     max-width: 760px !important;
-    padding-top: 7rem !important;
+    padding-top: 2rem !important;
     padding-bottom: 8rem !important;
 }
 
@@ -97,15 +102,12 @@ footer,
     line-height: 1.65 !important;
 }
 
-/* Fixed header pinned to viewport */
 .sticky-header {
-    position: fixed;
+    position: sticky;
     top: 0;
-    left: 0;
-    right: 0;
     z-index: 999;
     background-color: #2C3A1E;
-    padding: 1.2rem 1rem 0.6rem 1rem;
+    padding: 1rem 0 0.5rem 0;
     text-align: center;
 }
 
@@ -346,7 +348,7 @@ div:has([data-testid="stChatInput"]) > div {
     .block-container {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
-        padding-top: 7rem !important;
+        padding-top: 1.5rem !important;
     }
 
     .page-title {
@@ -364,7 +366,6 @@ div:has([data-testid="stChatInput"]) > div {
 </style>
 """
 
-# Inline JS to inject copy buttons under user messages
 COPY_BUTTON_JS = """
 <script>
 (function injectCopyButtons() {
@@ -469,12 +470,7 @@ query = st.chat_input("e.g. Find a PhD supervisor for machine learning and NLP")
 if query and query.strip():
     query = query.strip()
 
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": query
-        }
-    )
+    st.session_state.messages.append({"role": "user", "content": query})
 
     with st.chat_message("user"):
         st.markdown(query)
@@ -509,12 +505,6 @@ if query and query.strip():
 
         st.markdown(answer)
 
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": answer
-        }
-    )
+    st.session_state.messages.append({"role": "assistant", "content": answer})
 
-# Inject copy button script after all content
 st.markdown(COPY_BUTTON_JS, unsafe_allow_html=True)
