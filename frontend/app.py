@@ -35,7 +35,7 @@ body,
 
 .block-container {
     max-width: 760px !important;
-    padding-top: 2rem !important;
+    padding-top: 7rem !important;
     padding-bottom: 8rem !important;
 }
 
@@ -96,15 +96,19 @@ footer,
     margin: 0.45rem 0 !important;
     line-height: 1.65 !important;
 }
-/* Sticky header that stays visible on reload */
+
+/* Fixed header pinned to viewport */
 .sticky-header {
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 999;
     background-color: #2C3A1E;
-    padding: 1rem 0 0.5rem 0;
+    padding: 1.2rem 1rem 0.6rem 1rem;
     text-align: center;
 }
+
 .info-card strong {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.875rem !important;
@@ -135,7 +139,6 @@ footer,
 
 /* ─── Claude-like chat messages ─── */
 
-/* Hide default Streamlit chat styling completely */
 [data-testid="stChatMessage"] {
     background: transparent !important;
     border: none !important;
@@ -145,7 +148,6 @@ footer,
     box-shadow: none !important;
 }
 
-/* Hide the default avatar icons */
 [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-user"],
 [data-testid="stChatMessage"] [data-testid="chatAvatarIcon-assistant"],
 [data-testid="stChatMessage"] .stChatMessageAvatarUser,
@@ -154,13 +156,6 @@ footer,
     display: none !important;
 }
 
-/* Target the message content container */
-[data-testid="stChatMessage"][data-testid*="user"] [data-testid="stMarkdownContainer"],
-[data-testid="stChatMessageContent"] {
-    display: block;
-}
-
-/* USER messages — pill bubble, right-aligned */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
     display: flex !important;
     flex-direction: column !important;
@@ -188,7 +183,6 @@ footer,
     font-size: 0.92rem !important;
 }
 
-/* Copy button row under user message */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stChatMessageActionBar,
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stChatMessageActionBar"] {
     justify-content: flex-end !important;
@@ -196,7 +190,6 @@ footer,
     margin-right: 2px !important;
 }
 
-/* ASSISTANT messages — clean, no box, left-aligned */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
     display: block !important;
     padding: 0.2rem 0 0.8rem 0 !important;
@@ -245,7 +238,6 @@ footer,
     font-weight: 600 !important;
 }
 
-/* Subtle separator between message groups */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
     margin-top: 1.2rem !important;
 }
@@ -354,7 +346,7 @@ div:has([data-testid="stChatInput"]) > div {
     .block-container {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
-        padding-top: 1.5rem !important;
+        padding-top: 7rem !important;
     }
 
     .page-title {
@@ -393,7 +385,7 @@ COPY_BUTTON_JS = """
             row.style.cssText = 'display:flex;justify-content:flex-end;margin-top:4px;';
 
             const btn = document.createElement('button');
-            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy';
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"></path></svg> Copy';
             btn.style.cssText = [
                 'background:transparent',
                 'border:none',
@@ -469,7 +461,6 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for msg in st.session_state.messages:
-    # No avatars — pass empty strings to suppress default icons
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
