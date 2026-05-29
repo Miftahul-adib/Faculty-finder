@@ -344,6 +344,14 @@ if query and query.strip():
                 except ValueError:
                     answer = response.text.strip() or "No answer returned."
 
+            except requests.exceptions.Timeout:
+                answer = (
+                    "⏳ **The server is taking too long to respond.**\n\n"
+                    "This usually happens when the backend is waking up from sleep "
+                    "(it's hosted on a free tier). Please wait a moment and try again — "
+                    "a second attempt usually works.\n\n"
+                    "*If the issue keeps happening, the server may be temporarily unavailable.*"
+                )
             except requests.exceptions.RequestException as error:
                 answer = f"Error connecting to backend: {error}"
 
