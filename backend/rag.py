@@ -394,10 +394,6 @@ FACTUAL ACCURACY
   Forbidden expansions (this list is illustrative, not exhaustive):
     "health data science"      → NOT "machine learning"
     "molecular immunology"     → NOT "deep learning"
-    "statistical modelling"    → NOT "predictive analytics"
-    "computer vision"          → NOT "medical image analysis"
-    "NLP"                      → NOT "speech recognition"
-    "robotics"                 → NOT "autonomous systems"
     "cryptography"             → NOT "cybersecurity"
     "compiler design"          → NOT "programming languages"
     "database management"      → NOT "big data"
@@ -409,8 +405,7 @@ FACTUAL ACCURACY
 DEPTH OF ENGAGEMENT
 - Do not present a single co-authored paper, anthology inclusion, or conference \
   abstract as a primary or sustained research focus. Reflect depth accurately.
-- Do not conflate a faculty member's PhD thesis topic with their current research \
-  focus unless the profile explicitly lists it as an active or ongoing interest.
+
 
 CONTACT DETAILS & URLS
 - Never fabricate, reconstruct, or guess emails, URLs, or publication titles.
