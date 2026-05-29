@@ -155,7 +155,8 @@ footer,
 }
 
 [data-testid="stChatMessage"] a {
-    display: none !important;
+    color: #A8D08D !important;
+    text-decoration: underline !important;
 }
 
 [data-testid="stChatMessage"] hr {
