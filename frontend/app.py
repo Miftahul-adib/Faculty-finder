@@ -96,7 +96,15 @@ footer,
     margin: 0.45rem 0 !important;
     line-height: 1.65 !important;
 }
-
+/* Sticky header that stays visible on reload */
+.sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    background-color: #2C3A1E;
+    padding: 1rem 0 0.5rem 0;
+    text-align: center;
+}
 .info-card strong {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.875rem !important;
@@ -448,12 +456,10 @@ INFO_CARD_HTML = """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 st.markdown(
-    '<div class="page-title">Find Your Professor</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="page-subtitle">Describe your research interest — we\'ll match you with the right faculty</div>',
+    '''<div class="sticky-header">
+        <div class="page-title">Find Your Professor</div>
+        <div class="page-subtitle">Describe your research interest — we\'ll match you with the right faculty</div>
+    </div>''',
     unsafe_allow_html=True
 )
 
