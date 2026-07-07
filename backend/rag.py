@@ -27,7 +27,7 @@ TOP_K              = 25
 DEBUG              = os.getenv("DEBUG", "false").lower() == "true"
 MAX_RETRIES        = 2
 _MAX_TOKENS_ROUTER = 20
-_MAX_TOKENS_ANSWER = 2500
+_MAX_TOKENS_ANSWER = 5000
 
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 1 — HF LOGIN + CLIENT
@@ -224,6 +224,33 @@ def llm_call(
                 time.sleep(2 * attempt)
     return ""
 
+
+def stream_llm(
+    system_prompt: str,
+    user_content:  str,
+    max_tokens:    int   = 5000,
+    temperature:   float = 0.1,
+):
+    """Generator — streams LLM response token by token via HF streaming API."""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_content},
+    ]
+    try:
+        stream = hf_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=max(temperature, 0.01),
+            stream=True,
+        )
+        for chunk in stream:
+            token = chunk.choices[0].delta.content or ""
+            if token:
+                yield token
+    except Exception as e:
+        yield f"\n\n[Error: {e}]"
+
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 6 — ROUTER
 # ══════════════════════════════════════════════════════════════════════════
@@ -330,21 +357,19 @@ You are an academic advisor helping students identify suitable SUST \
 research collaboration or graduate supervision.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INPUTS YOU WILL RECEIVE
+INPUTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. The student's research interest or query.
-2. A set of SUST faculty profiles.
+2. A ranked list of SUST faculty profiles (pre-selected by semantic similarity).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR TASK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Step 1 — Silent analysis: Read EVERY faculty profile in full before \
-writing anything. Do not start your response until you have assessed all profiles.
-Step 2 — Relevance filtering: Identify every faculty member whose \
-explicitly stated research areas overlap with the student's query. \
-If no profile is relevant, say so clearly in the Overview.
-Step 3 — Ranked output: Write the structured response below, listing \
-ALL relevant faculty from most to least relevant.
+Step 1 — Read EVERY faculty profile in full before writing anything.
+Step 2 — List ALL provided faculty. These profiles were pre-selected by \
+semantic similarity, so every one of them is relevant to some degree. \
+NEVER skip or omit any profile. Rank from most to least relevant.
+Step 3 — Write the structured response below.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REQUIRED OUTPUT FORMAT
@@ -352,76 +377,49 @@ REQUIRED OUTPUT FORMAT
 
 ---
 ## Overview
-<4–8 sentences. Name the strongest matches and explain why. If no profiles \
-are relevant, state this clearly here and stop — do not fabricate matches.>
+<5–8 sentences. Name the top 3–5 strongest matches and explain why. \
+Briefly mention what the remaining faculty contribute.>
 
 ---
-## Top Faculty Matches
-<Repeat the block below for EVERY relevant faculty member, ranked best-first. \
-Omit faculty with no relevant overlap entirely — no placeholder entries.>
+## Faculty Matches
+<Repeat the block below for EVERY faculty member provided, ranked best-first. \
+Include ALL of them — never omit any.>
 
 ### [Rank]. [Full Name] — [Designation], [Department]
 
-**Why they match:** <1–5 sentences linking their EXPLICITLY STATED research \
-areas or projects to the student's query. Do not infer, extend, or bridge gaps.>
+**Why they match:** <5–7 sentences. Explain specifically how their stated \
+research areas, methods, projects, and application domains align with the query. \
+Discuss any techniques or tools they use that are directly relevant. \
+Where multiple aspects of the query connect to their work, address each one. \
+For lower-ranked entries 3–4 sentences covering partial overlap is acceptable.>
 
-**Research focus:** <Copy the research topics, methods, or project titles \
-verbatim or near-verbatim from the profile. Do not paraphrase into broader fields.>
+**Research focus:** <A thorough list of their research topics, methodologies, \
+tools, frameworks, and application domains exactly as stated in the profile. \
+Separate each distinct area with a bullet (•).>
+
+**Email:** <Email if provided in the profile data, otherwise omit this line.>
+
+**Profile:** <URL only if explicitly present in the profile data. Omit if absent — \
+never construct or guess URLs.>
 
 **Availability note:** <Include ONLY if the profile explicitly states the \
-faculty member is on study leave, pursuing a degree abroad, or affiliated with \
-another institution. Otherwise omit this field entirely.>
-
-**Profile:** <URL only if explicitly provided in the profile data. Omit this \
-line if no URL is present — do not construct or guess URLs.>
+faculty member is on study leave or affiliated elsewhere. Otherwise omit.>
 
 ---
 ## Summary & Recommendation
-<3–5 sentences of practical advice: who to contact first, useful cross-department \
-pairings if applicable, and any honest gaps in the available expertise.>
+<4–6 sentences of practical advice: who to contact first, useful cross-department \
+pairings, and any honest gaps in the available expertise.>
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STRICT RULES — VIOLATIONS BREAK THE TOOL
+STRICT RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-COMPLETENESS
-- Analyse ALL profiles before writing. Never stop early.
-- List EVERY faculty member with even partial relevance.
-
-FACTUAL ACCURACY
-- Use ONLY facts explicitly stated in the provided profiles.
-- Never hallucinate, infer, or expand research areas beyond what is written.
-  Forbidden expansions (this list is illustrative, not exhaustive):
-    "health data science"      → NOT "machine learning"
-    "molecular immunology"     → NOT "deep learning"
-    "cryptography"             → NOT "cybersecurity"
-    "compiler design"          → NOT "programming languages"
-    "database management"      → NOT "big data"
-    "signal processing"        → NOT "neural networks"
-    "translation studies"      → NOT "correspondence research"
-    "computational biology"    → NOT "bioinformatics" or "deep learning"
-  Rule: if the profile does not use the term, you do not use the term.
-
-DEPTH OF ENGAGEMENT
-- Do not present a single co-authored paper, anthology inclusion, or conference \
-  abstract as a primary or sustained research focus. Reflect depth accurately.
-
-
-CONTACT DETAILS & URLS
-- Never fabricate, reconstruct, or guess emails, URLs, or publication titles.
-- Only include a Profile URL if it appears verbatim in the provided profile data.
-- Do not construct URLs from email addresses, names, or department codes.
-
-ACADEMIC RANK
-- Use the exact designation from the profile.
-- Do not upgrade rank (e.g. do not write "Professor" if the profile says \
-  "Associate Professor" or "Lecturer").
-
-AVAILABILITY FLAGS
-- If a profile states the faculty member is on study leave, pursuing a degree \
-  abroad, or is affiliated with another institution, flag this clearly so the \
-  student understands they may be unavailable for supervision.
-- Do not assume availability or unavailability beyond what is stated.
+- List ALL provided profiles — never skip one.
+- Keep each entry concise (4–6 lines) so all 15 fit in the response.
+- Only use facts explicitly stated in the profiles. Never infer or expand.
+- Never fabricate emails, URLs, or publication titles.
+- Use the exact designation — do not upgrade academic rank.
+- Forbidden expansions: "health data" → NOT "machine learning", \
+  "cryptography" → NOT "cybersecurity", "signal processing" → NOT "neural networks".
 """
 
 def build_context(candidates: list) -> str:
@@ -431,6 +429,7 @@ def build_context(candidates: list) -> str:
             f"=== FACULTY {i}: {p.get('name', '-')} ===\n"
             f"Designation : {p.get('designation', '-')}\n"
             f"Department  : {p.get('department', '-')}\n"
+            f"Email       : {p.get('email') or 'N/A'}\n"
             f"Profile URL : {p.get('profile_url') or 'N/A'}\n"
             f"Similarity  : {p.get('similarity_score', 0)}\n"
         )
@@ -525,3 +524,308 @@ def ask(query: str) -> str:
     print("═" * W)
 
     return answer
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  PhD STUDENT RAG — setup, embeddings, retrieval, answer
+# ══════════════════════════════════════════════════════════════════════════
+
+PHD_IDS    = []
+PHD_MATRIX = None
+
+PHD_OUT_OF_SCOPE_MSG = (
+    "This search helps you find PhD students and researchers for collaboration.\n\n"
+    "Try asking:\n"
+    "  • 'Find someone working on NLP or Bangla language processing'\n"
+    "  • 'Looking for a research partner in computer vision'\n"
+    "  • 'Who is working on IoT and smart systems at SUST?'\n"
+    "  • 'Find a co-author for a deep learning paper'"
+)
+
+PHD_ROUTER_SYSTEM = """\
+You are a query classifier for a PhD student and researcher search system.
+
+Classify the query into ONE of:
+  researcher_search — user wants to find PhD students, researchers, or research collaborators/partners
+  out_of_scope      — completely unrelated to research or collaboration (weather, cooking, jokes, etc.)
+
+Reply with ONLY one word: researcher_search  OR  out_of_scope
+"""
+
+PHD_ANSWER_SYSTEM = """\
+You are a research collaboration advisor helping students find PhD researchers \
+at SUST (Shahjalal University of Science and Technology) for collaboration, \
+co-authorship, or networking.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INPUTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. The student's query (research interest or collaboration goal).
+2. A ranked list of PhD student profiles (most semantically similar first).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YOUR TASK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Step 1 — Read EVERY profile in full before writing anything.
+Step 2 — Include ALL profiles as matches. These candidates were pre-selected \
+by semantic similarity, so EVERY one of them is relevant to some degree. \
+DO NOT skip or omit any profile — list all of them, ranked from most to least relevant.
+Step 3 — Write the structured response below.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIRED OUTPUT FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+---
+## Overview
+<4-6 sentences. Name the strongest matches, explain why they fit, and briefly \
+mention what complementary expertise the others bring.>
+
+---
+## Matches
+
+### [Rank]. [Full Name] — [Department]
+
+**Why they match:** <4–6 sentences. Explain how their research areas, thesis work, \
+active projects, and collaboration tags connect to the query. Be specific about \
+which methodologies or datasets they work with that are relevant. Where their \
+tags signal openness to the type of collaboration the student is looking for, \
+highlight this explicitly.>
+
+**Research focus:** <Comprehensive list of their research areas, methods, tools, \
+and domains verbatim or near-verbatim from the profile. Use bullets (•) for each distinct area.>
+
+**Current work:** <2–3 sentences on their active thesis or project from the bio. \
+Be specific — include any collaborators, datasets, or real-world deployment targets mentioned.>
+
+**Collaboration tags:** <List every tag exactly as written. If none, write "None listed.">
+
+**Supervisor:** <Supervisor name from the profile, or "Not specified".>
+
+**Contact:** <Email if explicitly provided in the profile, otherwise omit this line.>
+
+---
+## Summary & Recommendation
+<3-4 sentences of practical advice: who to contact first, useful cross-department \
+pairings, and any honest gaps.>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- List ALL provided profiles — never skip one.
+- Only use facts explicitly stated in the profiles.
+- Never fabricate emails, supervisors, or research areas.
+- Never expand or infer research areas beyond what is written.
+- Keep each entry concise (3-6 lines) so the full list fits in the response.
+"""
+
+
+def classify_query_phd(query: str) -> str:
+    raw = llm_call(
+        PHD_ROUTER_SYSTEM,
+        f"Query: {query}",
+        max_tokens=10,
+        temperature=0.0,
+        label="phd_router",
+    ).lower().strip()
+    if "out_of_scope" in raw:
+        return "out_of_scope"
+    return "researcher_search"
+
+
+def setup_phd_db():
+    """Add embedding column to phd_students if missing."""
+    with get_conn() as con:
+        if not col_exists(con, "phd_students", "embedding"):
+            con.execute("ALTER TABLE phd_students ADD COLUMN embedding BLOB")
+            con.commit()
+            print("  + phd_students.embedding column added")
+        else:
+            print("  phd_students.embedding column already present")
+        total = con.execute("SELECT COUNT(*) FROM phd_students").fetchone()[0]
+        has_emb = con.execute(
+            "SELECT COUNT(*) FROM phd_students WHERE embedding IS NOT NULL"
+        ).fetchone()[0]
+    print(f"PhD students: {total} total, {has_emb} with embeddings")
+
+
+def _build_phd_embed_text(row, tags: list) -> str:
+    parts = []
+    if row["name"]:           parts.append(row["name"])
+    if row["department"]:     parts.append(row["department"])
+    if row["supervisor"]:     parts.append(f"Supervisor: {row['supervisor']}")
+    if row["research_area"]:  parts.append(f"Research: {row['research_area']}")
+    bio = (row["bio"] or "").strip()
+    if bio:                   parts.append(bio[:400])
+    if tags:                  parts.append("Collaboration tags: " + "; ".join(tags))
+    return " | ".join(parts)
+
+
+def ensure_phd_embeddings():
+    """Compute embeddings for PhD students that are missing them."""
+    with get_conn() as con:
+        pending = [r["id"] for r in con.execute(
+            "SELECT id FROM phd_students WHERE embedding IS NULL"
+        ).fetchall()]
+
+    print(f"PhD students needing embeddings: {len(pending)}")
+    if not pending:
+        print("All PhD students already have embeddings — skipping.")
+        return
+
+    for start in range(0, len(pending), 32):
+        batch_ids = pending[start:start + 32]
+        ph = ",".join("?" * len(batch_ids))
+        with get_conn() as con:
+            rows = con.execute(
+                f"SELECT id, name, department, supervisor, research_area, bio FROM phd_students WHERE id IN ({ph})",
+                batch_ids
+            ).fetchall()
+            tags_map = defaultdict(list)
+            for tr in con.execute(
+                f"SELECT phd_student_id, tag FROM phd_student_tags WHERE phd_student_id IN ({ph})",
+                batch_ids
+            ).fetchall():
+                tags_map[tr["phd_student_id"]].append(tr["tag"])
+
+        texts = [_build_phd_embed_text(r, tags_map[r["id"]]) for r in rows]
+        vecs  = hf_embed(texts)
+
+        with get_conn() as con:
+            for row, vec in zip(rows, vecs):
+                con.execute("UPDATE phd_students SET embedding=? WHERE id=?",
+                            (vec_to_blob(vec), row["id"]))
+            con.commit()
+
+    print(f"PhD student embeddings done ({len(pending)} computed)")
+
+
+def load_phd_index():
+    """Load PhD student embeddings into RAM."""
+    global PHD_IDS, PHD_MATRIX
+    with get_conn() as con:
+        rows = con.execute(
+            "SELECT id, embedding FROM phd_students WHERE embedding IS NOT NULL"
+        ).fetchall()
+    if not rows:
+        print("No PhD student embeddings found — index empty.")
+        return
+    PHD_IDS    = [r["id"] for r in rows]
+    PHD_MATRIX = np.stack([blob_to_vec(r["embedding"]) for r in rows])
+    print(f"PhD student index loaded: {len(PHD_IDS)} vectors {PHD_MATRIX.shape}")
+
+
+def retrieve_top_phd(query: str, k: int = 10) -> list:
+    """Semantic retrieval for PhD students."""
+    if not PHD_IDS or PHD_MATRIX is None:
+        return []
+
+    q_vec    = hf_embed([query])[0]
+    sims     = PHD_MATRIX @ q_vec
+    top_idx  = np.argsort(-sims)[:k]
+    top_ids  = [int(PHD_IDS[i]) for i in top_idx]
+    top_sims = [float(sims[i]) for i in top_idx]
+
+    ph = ",".join("?" * len(top_ids))
+    with get_conn() as con:
+        rows = con.execute(f"""
+            SELECT id, name, department, supervisor, research_area, bio, email, year_enrolled
+            FROM phd_students WHERE id IN ({ph})
+        """, top_ids).fetchall()
+        tags_map = defaultdict(list)
+        for tr in con.execute(
+            f"SELECT phd_student_id, tag FROM phd_student_tags WHERE phd_student_id IN ({ph})",
+            top_ids
+        ).fetchall():
+            tags_map[tr["phd_student_id"]].append(tr["tag"])
+
+    id_to_row = {r["id"]: dict(r) for r in rows}
+    id_to_sim = dict(zip(top_ids, top_sims))
+
+    candidates = []
+    for fid in top_ids:
+        if fid not in id_to_row:
+            continue
+        p = id_to_row[fid]
+        p["similarity_score"] = round(id_to_sim[fid], 4)
+        p["tags"] = tags_map.get(fid, [])
+        candidates.append(p)
+
+    print(f"  Retrieved {len(candidates)} PhD candidates for query.")
+    return candidates
+
+
+def build_phd_context(candidates: list) -> str:
+    blocks = []
+    for i, p in enumerate(candidates, 1):
+        header = (
+            f"=== PHD STUDENT {i}: {p.get('name', '-')} ===\n"
+            f"Department    : {p.get('department', '-')}\n"
+            f"Supervisor    : {p.get('supervisor') or 'N/A'}\n"
+            f"Year Enrolled : {p.get('year_enrolled') or 'N/A'}\n"
+            f"Email         : {p.get('email') or 'N/A'}\n"
+            f"Similarity    : {p.get('similarity_score', 0)}\n"
+        )
+        research = (p.get("research_area") or "").strip()
+        bio      = (p.get("bio") or "").strip()
+        tags     = p.get("tags", [])
+
+        body_parts = []
+        if research:  body_parts.append(f"Research Areas:\n{research}")
+        if bio:       body_parts.append(f"Bio:\n{bio}")
+        if tags:      body_parts.append("Collaboration Tags:\n" + "\n".join(f"  - {t}" for t in tags))
+        body = "\n\n".join(body_parts) if body_parts else "No profile data available."
+
+        blocks.append(header + body)
+    return "\n\n".join(blocks)
+
+
+def ask_phd(query: str) -> dict:
+    """Full RAG pipeline for PhD student search."""
+    W = 80
+    print("\n" + "═" * W)
+    print(f"  [PHD SEARCH] QUERY: {query}")
+    print("═" * W)
+
+    t0 = time.time()
+
+    print("  [STEP 0] Routing query...")
+    route = classify_query_phd(query)
+    print(f"  → Route: {route.upper()}")
+
+    if route == "out_of_scope":
+        return {"answer": PHD_OUT_OF_SCOPE_MSG, "candidates": []}
+
+    print("  [STEP 1] Semantic retrieval...")
+    candidates = retrieve_top_phd(query, k=15)
+    if not candidates:
+        return {"answer": "No PhD students found in the database.", "candidates": []}
+
+    print("  [STEP 2] Generating LLM answer...")
+    context  = build_phd_context(candidates)
+    user_msg = (
+        f"STUDENT QUERY:\n{query}\n\n"
+        f"PHD STUDENT PROFILES ({len(candidates)} candidates):\n\n{context}"
+    )
+    answer = llm_call(PHD_ANSWER_SYSTEM, user_msg,
+                      max_tokens=2000, temperature=0.1, label="phd_answer")
+
+    elapsed = time.time() - t0
+    print(f"  ⏱  Done in {elapsed:.1f}s")
+    print("═" * W)
+
+    top = [{
+        "id":               c["id"],
+        "name":             c["name"],
+        "department":       c.get("department", ""),
+        "research_area":    c.get("research_area", ""),
+        "tags":             c.get("tags", []),
+        "email":            c.get("email", ""),
+        "supervisor":       c.get("supervisor", ""),
+        "similarity_score": c.get("similarity_score", 0),
+    } for c in candidates[:15]]
+
+    return {
+        "answer":     answer or "LLM did not return a response. Please retry.",
+        "candidates": top,
+    }
