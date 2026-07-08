@@ -23,7 +23,9 @@ async function parseJsonResponse(res) {
 }
 
 export async function apiGet(path, params) {
-  const url = new URL(BACKEND_URL + path);
+  // Base is required so this doesn't throw when BACKEND_URL is "" (same-origin
+  // deployments) — new URL() rejects a bare relative string with no base.
+  const url = new URL(BACKEND_URL + path, window.location.origin);
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
