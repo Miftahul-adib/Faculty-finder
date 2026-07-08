@@ -1,26 +1,29 @@
-# backend/rag.py
 """
 SUST Faculty Finder — RAG core
 Converted from v12 notebook (Gemma 4 via HuggingFace Inference API).
 Config is read from .env — HF_TOKEN is never hardcoded here.
 Embeddings now use HF Inference API — no sentence-transformers / torch needed.
 """
+# backend/rag.py
 
 import os, sqlite3, struct, gc, time
 from collections import defaultdict
 from dotenv import load_dotenv
 import numpy as np
 from huggingface_hub import InferenceClient, login as hf_login
+import requests
+import json
 
 load_dotenv()
 
 # ══════════════════════════════════════════════════════════════════════════
-#  SETTINGS  (mirrors Cell 0)
+#  SETTINGS
 # ══════════════════════════════════════════════════════════════════════════
-HF_TOKEN           = os.environ["HF_TOKEN"]
-HF_PROVIDER        = os.getenv("HF_PROVIDER", "auto")
-LLM_MODEL          = os.getenv("LLM_MODEL", "google/gemma-4-26B-A4B-it")
-# ── CHANGED: full HF model ID required for Inference API ──────────────────
+HF_TOKEN           = os.environ.get("HF_TOKEN", "")
+DEEPSEEK_API_KEY   = os.environ.get("DEEPSEEK_API_KEY", "")
+USE_DEEPSEEK       = os.getenv("USE_DEEPSEEK", "true").lower() == "true"
+DEEPSEEK_MODEL     = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+LLM_MODEL          = os.getenv("LLM_MODEL", "deepseek-chat")
 EMBED_MODEL_NAME   = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 DB_PATH            = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
 TOP_K              = 25
@@ -30,13 +33,97 @@ _MAX_TOKENS_ROUTER = 20
 _MAX_TOKENS_ANSWER = 5000
 
 # ══════════════════════════════════════════════════════════════════════════
-#  CELL 1 — HF LOGIN + CLIENT
-#  REMOVED: SentenceTransformer — no torch/sentence-transformers needed
+#  CLIENT INITIALIZATION
 # ══════════════════════════════════════════════════════════════════════════
-hf_login(token=HF_TOKEN, add_to_git_credential=False)
-hf_client = InferenceClient(token=HF_TOKEN, provider=HF_PROVIDER)
-print(f"HF client ready | model: {LLM_MODEL}")
+if USE_DEEPSEEK:
+    if not DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY environment variable is required")
+    print(f"✓ Using DeepSeek API | model: {DEEPSEEK_MODEL}")
+    deepseek_client = None  # Will use requests directly
+else:
+    hf_login(token=HF_TOKEN, add_to_git_credential=False)
+    hf_client = InferenceClient(token=HF_TOKEN)
+    print(f"✓ Using HuggingFace | model: {LLM_MODEL}")
+
 print(f"Embedding model : {EMBED_MODEL_NAME} (via HF Inference API)")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  DEEPSEEK LLM CALL HELPER
+# ══════════════════════════════════════════════════════════════════════════
+def deepseek_call(system_prompt: str, user_content: str, max_tokens: int = 5000, temperature: float = 0.1) -> str:
+    """Call DeepSeek API."""
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": max(temperature, 0.01),
+        "stream": False
+    }
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        if DEBUG:
+            print(f"DeepSeek error: {e}")
+        raise
+
+
+def deepseek_stream(system_prompt: str, user_content: str, max_tokens: int = 5000, temperature: float = 0.1):
+    """Stream from DeepSeek API."""
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": max(temperature, 0.01),
+        "stream": True
+    }
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60,
+            stream=True
+        )
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            line = line.decode("utf-8") if isinstance(line, bytes) else line
+            if line.startswith("data: "):
+                try:
+                    chunk = json.loads(line[6:])
+                    token = chunk["choices"][0]["delta"].get("content", "")
+                    if token:
+                        yield token
+                except json.JSONDecodeError:
+                    pass
+    except Exception as e:
+        if DEBUG:
+            print(f"DeepSeek stream error: {e}")
+        raise
 
 # ══════════════════════════════════════════════════════════════════════════
 #  EMBEDDING HELPER  (replaces SentenceTransformer)
@@ -191,7 +278,7 @@ def load_faculty_index():
     print(f"Faculty index loaded: {len(FAC_IDS)} faculty vectors ({FAC_MATRIX.shape})")
 
 # ══════════════════════════════════════════════════════════════════════════
-#  CELL 5 — LLM WRAPPER (Gemma 4 via HF API)
+#  CELL 5 — LLM WRAPPER (Gemma 4 via HF API + DeepSeek)
 # ══════════════════════════════════════════════════════════════════════════
 def llm_call(
     system_prompt: str,
@@ -201,28 +288,35 @@ def llm_call(
     label:         str   = "",
 ) -> str:
     """
-    Call Gemma 4 via HuggingFace Inference API.
-    Gemma 4 natively supports the system role — no merging needed.
+    Call LLM (DeepSeek or HuggingFace).
+    Supports both APIs transparently based on USE_DEEPSEEK flag.
     """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user",   "content": user_content},
-    ]
-    for attempt in range(1, MAX_RETRIES + 1):
+    if USE_DEEPSEEK:
         try:
-            resp = hf_client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=max(temperature, 0.01),
-            )
-            return resp.choices[0].message.content.strip()
+            return deepseek_call(system_prompt, user_content, max_tokens, temperature)
         except Exception as e:
-            print(f"  [LLM attempt {attempt}/{MAX_RETRIES}] {label} error: {e}")
-            gc.collect()
-            if attempt < MAX_RETRIES:
-                time.sleep(2 * attempt)
-    return ""
+            print(f"  [LLM] {label} DeepSeek error: {e}")
+            raise
+    else:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_content},
+        ]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                resp = hf_client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=max(temperature, 0.01),
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"  [LLM attempt {attempt}/{MAX_RETRIES}] {label} error: {e}")
+                gc.collect()
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+        return ""
 
 
 def stream_llm(
@@ -231,25 +325,27 @@ def stream_llm(
     max_tokens:    int   = 5000,
     temperature:   float = 0.1,
 ):
-    """Generator — streams LLM response token by token via HF streaming API."""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user",   "content": user_content},
-    ]
-    try:
-        stream = hf_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=max(temperature, 0.01),
-            stream=True,
-        )
-        for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            if token:
-                yield token
-    except Exception as e:
-        yield f"\n\n[Error: {e}]"
+    """Generator — streams LLM response token by token."""
+    if USE_DEEPSEEK:
+        yield from deepseek_stream(system_prompt, user_content, max_tokens, temperature)
+    else:
+        try:
+            stream = hf_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_content},
+                ],
+                max_tokens=max_tokens,
+                temperature=max(temperature, 0.01),
+                stream=True,
+            )
+            for chunk in stream:
+                token = chunk.choices[0].delta.content or ""
+                if token:
+                    yield token
+        except Exception as e:
+            yield f"\n\n[Error: {e}]"
 
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 6 — ROUTER
@@ -423,6 +519,11 @@ STRICT RULES
 """
 
 def build_context(candidates: list) -> str:
+    """
+    Build faculty context for LLM.
+    ISSUE #5 FIX: Do NOT include "No profile data available." fallback message.
+    Instead, always construct something meaningful from available fields.
+    """
     blocks = []
     for i, p in enumerate(candidates, 1):
         header = (
@@ -433,17 +534,26 @@ def build_context(candidates: list) -> str:
             f"Profile URL : {p.get('profile_url') or 'N/A'}\n"
             f"Similarity  : {p.get('similarity_score', 0)}\n"
         )
+        
+        # Build body from available data — prioritize research_summary, fall back to interests + bio
         summary = (p.get("research_summary") or "").strip()
         if summary:
             body = f"Research Summary:\n{summary}"
         else:
-            parts = []
+            body_parts = []
             if p.get("interests"):
-                parts.append("Research Interests: " + "; ".join(p["interests"]))
+                body_parts.append("Research Interests: " + "; ".join(p["interests"]))
             bio = (p.get("biography") or "").strip()
             if bio:
-                parts.append(f"Biography: {bio[:400]}")
-            body = "\n".join(parts) if parts else "No profile data available."
+                body_parts.append(f"Biography: {bio[:400]}")
+            
+            # If we have interests or bio, use them. Otherwise, minimal fallback (not "No profile data available.")
+            if body_parts:
+                body = "\n".join(body_parts)
+            else:
+                # Minimal placeholder that won't generate a "Why they match" section
+                body = "[Minimal profile information available — consider contacting directly for details]"
+        
         blocks.append(header + body)
     return "\n\n".join(blocks)
 
@@ -756,6 +866,10 @@ def retrieve_top_phd(query: str, k: int = 10) -> list:
 
 
 def build_phd_context(candidates: list) -> str:
+    """
+    Build PhD student context for LLM.
+    ISSUE #5 FIX: Do NOT include "No profile data available." fallback message.
+    """
     blocks = []
     for i, p in enumerate(candidates, 1):
         header = (
@@ -774,7 +888,12 @@ def build_phd_context(candidates: list) -> str:
         if research:  body_parts.append(f"Research Areas:\n{research}")
         if bio:       body_parts.append(f"Bio:\n{bio}")
         if tags:      body_parts.append("Collaboration Tags:\n" + "\n".join(f"  - {t}" for t in tags))
-        body = "\n\n".join(body_parts) if body_parts else "No profile data available."
+        
+        # If we have any data, use it. Otherwise, minimal placeholder.
+        if body_parts:
+            body = "\n\n".join(body_parts)
+        else:
+            body = "[Minimal profile information — reach out for more details]"
 
         blocks.append(header + body)
     return "\n\n".join(blocks)

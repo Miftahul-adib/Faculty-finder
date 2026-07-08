@@ -53,6 +53,10 @@ class UpdateProfileRequest(BaseModel):
     university: Optional[str] = None
     department: Optional[str] = None
     year: Optional[str] = None
+    research_interests: Optional[str] = None
+    research_summary: Optional[str] = None
+    certifications: Optional[str] = None
+    cv_path: Optional[str] = None
 
 class PostRequest(BaseModel):
     title: str
@@ -158,7 +162,17 @@ def update_student(student_id: int, req: UpdateProfileRequest,
     auth_id = _require_auth(x_token)
     if auth_id != student_id:
         raise HTTPException(status_code=403, detail="Cannot edit another student's profile")
-    student_db.update_student(student_id, req.bio, req.university, req.department, req.year)
+    student_db.update_student(
+        student_id, 
+        bio=req.bio, 
+        university=req.university, 
+        department=req.department, 
+        year=req.year,
+        research_interests=req.research_interests,
+        research_summary=req.research_summary,
+        certifications=req.certifications,
+        cv_path=req.cv_path
+    )
     return {"message": "Profile updated"}
 
 

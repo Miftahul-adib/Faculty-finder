@@ -1,4 +1,5 @@
 import streamlit as st
+import re
 from utils import (api_post, is_logged_in, divider, get_initials, APP_NAME)
 
 for key, default in [("token", ""), ("student_id", None), ("student_name", "")]:
@@ -104,8 +105,13 @@ with mid:
                                  "Masters","PhD Student","Graduate"])
             submitted_s = st.form_submit_button("Create account", use_container_width=True, type="primary")
         if submitted_s:
+            # Frontend validation
             if not name or not email_s or not password_s:
                 st.error("Name, email and password are required.")
+            elif not re.match(r'^[a-zA-Z\s]{2,50}$', name.strip()):
+                st.error("Full name can only contain letters and spaces (2-50 characters).")
+            elif not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email_s.strip()):
+                st.error("Please enter a valid email address (e.g. name@sust.edu).")
             elif len(password_s) < 6:
                 st.error("Password must be at least 6 characters.")
             else:

@@ -46,10 +46,7 @@ def render_candidate_cards(candidates):
         initials = get_initials(c["name"])
         dept     = c.get("department", "")
         desig    = c.get("designation", "")
-        email    = c.get("email", "")
         meta     = " · ".join(filter(None, [desig, dept]))
-        email_html = (f'<span style="font-family:Inter,sans-serif;font-size:0.73rem;'
-                      f'color:#6B8F52;">{email}</span>') if email else ""
 
         col_card, col_btn = st.columns([7, 1.3], gap="small")
         with col_card:
@@ -61,7 +58,6 @@ def render_candidate_cards(candidates):
                 f'<div class="dark-card-name">{c["name"]}</div>'
                 f'<div class="dark-card-meta">{meta}</div>'
                 f'</div></div>'
-                + (f'<div style="margin-top:6px;">{email_html}</div>' if email_html else "")
                 + '</div>',
                 unsafe_allow_html=True,
             )
@@ -69,13 +65,13 @@ def render_candidate_cards(candidates):
             st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
             if is_logged_in():
                 if saved:
-                    if st.button("✓ Saved", key=f"unsave_f_{fid}", type="secondary",
+                    if st.button("✓ Saved", key=f"unsave_fac_{fid}", type="secondary",
                                  help="Remove from saved", use_container_width=True):
                         api_delete(f"/student/{st.session_state.student_id}/save-faculty/{fid}")
                         st.session_state.saved_fac_ids.discard(fid)
                         st.rerun()
                 else:
-                    if st.button("+ Save", key=f"save_f_{fid}", type="primary",
+                    if st.button("+ Save", key=f"save_fac_{fid}", type="primary",
                                  use_container_width=True):
                         _, err = api_post(f"/student/{st.session_state.student_id}/save-faculty",
                                           {"faculty_id": fid})

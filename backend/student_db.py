@@ -1,5 +1,6 @@
 import sqlite3, os, hashlib, secrets
 from datetime import datetime, timedelta
+import re
 
 DB_PATH = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
 
@@ -24,6 +25,10 @@ def setup_student_db():
                 department TEXT DEFAULT '',
                 year TEXT DEFAULT '',
                 bio TEXT DEFAULT '',
+                research_interests TEXT DEFAULT '',
+                research_summary TEXT DEFAULT '',
+                certifications TEXT DEFAULT '',
+                cv_path TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
@@ -348,16 +353,42 @@ def _seed_phd_students():
     print(f"Seeded {len(phd_data)} PhD students")
 
 
+# ── Auth validation ──────────────────────────────────────────────────────
+
+def validate_signup_inputs(name: str, email: str, password: str) -> tuple:
+    """
+    Validate signup inputs.
+    Returns (is_valid, error_message)
+    """
+    # Validate name - only letters and spaces, 2-50 characters
+    if not re.match(r'^[a-zA-Z\s]{2,50}$', name.strip()):
+        return False, "Full name must contain only letters and spaces (2-50 characters)"
+    
+    # Validate email format
+    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email.strip()):
+        return False, "Invalid email format"
+    
+    # Validate password length
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters"
+    
+    return True, None
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────
 
 def signup(name, email, password, university="SUST", department="", year=""):
+    is_valid, error = validate_signup_inputs(name, email, password)
+    if not is_valid:
+        return {"ok": False, "error": error}
+    
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(password, salt)
     try:
         with get_conn() as con:
             con.execute(
                 "INSERT INTO students (name,email,password_hash,salt,university,department,year) VALUES (?,?,?,?,?,?,?)",
-                (name, email, pw_hash, salt, university, department, year)
+                (name.strip(), email.strip(), pw_hash, salt, university, department, year)
             )
             con.commit()
         return {"ok": True}
@@ -405,7 +436,7 @@ def logout(token):
 def get_student(student_id):
     with get_conn() as con:
         row = con.execute(
-            "SELECT id,name,email,university,department,year,bio FROM students WHERE id=?",
+            "SELECT id,name,email,university,department,year,bio,research_interests,research_summary,certifications,cv_path FROM students WHERE id=?",
             (student_id,)
         ).fetchone()
         if not row:
@@ -421,12 +452,18 @@ def get_student(student_id):
     return student
 
 
-def update_student(student_id, bio=None, university=None, department=None, year=None):
+def update_student(student_id, bio=None, university=None, department=None, year=None,
+                   research_interests=None, research_summary=None, certifications=None, cv_path=None):
     fields, vals = [], []
-    if bio is not None:        fields.append("bio=?");        vals.append(bio)
-    if university is not None: fields.append("university=?"); vals.append(university)
-    if department is not None: fields.append("department=?"); vals.append(department)
-    if year is not None:       fields.append("year=?");       vals.append(year)
+    if bio is not None:                fields.append("bio=?");                vals.append(bio)
+    if university is not None:         fields.append("university=?");         vals.append(university)
+    if department is not None:         fields.append("department=?");         vals.append(department)
+    if year is not None:               fields.append("year=?");               vals.append(year)
+    if research_interests is not None: fields.append("research_interests=?"); vals.append(research_interests)
+    if research_summary is not None:   fields.append("research_summary=?");   vals.append(research_summary)
+    if certifications is not None:     fields.append("certifications=?");     vals.append(certifications)
+    if cv_path is not None:            fields.append("cv_path=?");            vals.append(cv_path)
+    
     if not fields:
         return
     vals.append(student_id)

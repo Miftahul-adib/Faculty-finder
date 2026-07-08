@@ -1,5 +1,7 @@
 import streamlit as st
 import requests
+import os
+import hashlib
 from utils import (BASE_CSS, BACKEND_URL, auth_headers, is_logged_in,
                    api_get, api_post, api_delete, get_initials,
                    render_tag_chips, section_label, divider, SUGGESTED_TAGS)
@@ -65,18 +67,64 @@ with tab_edit:
             department = st.text_input("Department",  value=profile.get("department") or "")
         with c2:
             year = st.text_input("Year / Status", value=profile.get("year") or "")
+        
+        st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
+        st.markdown("### Research Details")
+        
+        research_interests = st.text_area("Research Interests", 
+                                         value=profile.get("research_interests") or "",
+                                         height=80,
+                                         placeholder="e.g. Machine Learning, NLP, Computer Vision, Bioinformatics")
+        
+        research_summary = st.text_area("Research Summary / Thesis Focus", 
+                                       value=profile.get("research_summary") or "",
+                                       height=100,
+                                       placeholder="Brief summary of your current research work, thesis topic, or key projects…")
+        
+        certifications = st.text_area("Certifications & Achievements", 
+                                     value=profile.get("certifications") or "",
+                                     height=80,
+                                     placeholder="e.g. AWS Certified, Published papers, Awards, Completed courses…")
+        
+        st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
+        cv_file = st.file_uploader("Upload CV (PDF)", type=["pdf"], help="Upload or update your curriculum vitae")
+        
         if st.form_submit_button("Save changes", use_container_width=True, type="primary"):
+            cv_path = profile.get("cv_path")  # Keep existing if no new upload
+            
+            if cv_file:
+                # Save CV to local directory with hashed filename
+                try:
+                    filename = hashlib.md5(f"{sid}{cv_file.name}".encode()).hexdigest() + ".pdf"
+                    cv_dir = "cvs"
+                    os.makedirs(cv_dir, exist_ok=True)
+                    cv_path = f"{cv_dir}/{filename}"
+                    with open(cv_path, "wb") as f:
+                        f.write(cv_file.getbuffer())
+                    st.success("CV uploaded successfully!")
+                except Exception as e:
+                    st.warning(f"Could not save CV locally: {e}. Profile will be updated without CV.")
+            
+            # Send update to backend
             r = requests.put(
                 f"{BACKEND_URL}/student/{sid}",
-                json={"bio": bio, "university": university,
-                      "department": department, "year": year},
+                json={
+                    "bio": bio, 
+                    "university": university,
+                    "department": department, 
+                    "year": year,
+                    "research_interests": research_interests,
+                    "research_summary": research_summary,
+                    "certifications": certifications,
+                    "cv_path": cv_path
+                },
                 headers=auth_headers(), timeout=15,
             )
             if r.ok:
                 st.success("Profile updated successfully!")
                 st.rerun()
             else:
-                st.error(r.text)
+                st.error(f"Failed to update profile: {r.text}")
 
 # ═══════════════════════ TAB 2 — POSTS ══════════════════════════════════════
 with tab_posts:
@@ -216,9 +264,6 @@ with tab_saved:
                 f'<div class="match-card-name">{f["name"]}</div>'
                 f'<div class="match-card-meta">{meta}</div>'
                 f'</div></div>'
-                + (f'<div style="margin-top:4px;">'
-                   + (f'<span class="match-card-email">{email}</span>')
-                   + '</div>' if email else "")
                 + '</div>',
                 unsafe_allow_html=True,
             )
