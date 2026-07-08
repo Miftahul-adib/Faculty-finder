@@ -17,6 +17,12 @@ Live deployment (Railway): https://faculty-finder-backend-production.up.railway.
   real source (not committed — regenerated each time to avoid drift), then
   deploy that directory as the build context.
 
+  Those staged copies are gitignored (see root `.gitignore`), and
+  `railway up` respects `.gitignore` by default when building its upload
+  tarball — so a plain `railway up` silently uploads an empty
+  frontend/backend and fails the build. Always deploy with
+  `railway up --no-gitignore` from `deploy/railway/`.
+
 ## Railway setup (for reference / redeploying)
 
 Project: `expense-tracker` (Railway account's free-plan project slot),
