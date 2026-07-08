@@ -1,4 +1,7 @@
-export const BACKEND_URL = (window.__BACKEND_URL__ || "http://localhost:8000").replace(/\/$/, "");
+// Nullish coalescing (not ||): an intentionally empty string means
+// "same origin" (nginx proxies API paths to the backend) and must not be
+// overridden by the localhost fallback the way `||` would treat it.
+export const BACKEND_URL = (window.__BACKEND_URL__ ?? "http://localhost:8000").replace(/\/$/, "");
 
 function authHeaders() {
   const token = localStorage.getItem("sl_token");
