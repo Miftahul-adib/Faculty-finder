@@ -13,7 +13,8 @@ for key, default in [("token",""),("student_id",None),("student_name",""),
         st.session_state[key] = default
 
 page_header("Search Faculty",
-            "Describe your research interest in plain language — our AI finds the right professors")
+            "Describe your research interest in plain language — our AI finds the right professors",
+            kicker="Find a supervisor")
 
 st.markdown(
     '<div class="info-banner">'
@@ -46,10 +47,11 @@ def render_candidate_cards(candidates):
         initials = get_initials(c["name"])
         dept     = c.get("department", "")
         desig    = c.get("designation", "")
-        email    = c.get("email", "")
+        url      = c.get("profile_url", "")
         meta     = " · ".join(filter(None, [desig, dept]))
-        email_html = (f'<span style="font-family:Inter,sans-serif;font-size:0.73rem;'
-                      f'color:#6B8F52;">{email}</span>') if email else ""
+        link_html = (f'<a href="{url}" target="_blank" style="font-family:Inter,sans-serif;'
+                     f'font-size:0.73rem;color:#6ECDA0;text-decoration:none;">'
+                     f'View profile ↗</a>') if url else ""
 
         col_card, col_btn = st.columns([7, 1.3], gap="small")
         with col_card:
@@ -61,7 +63,7 @@ def render_candidate_cards(candidates):
                 f'<div class="dark-card-name">{c["name"]}</div>'
                 f'<div class="dark-card-meta">{meta}</div>'
                 f'</div></div>'
-                + (f'<div style="margin-top:6px;">{email_html}</div>' if email_html else "")
+                + (f'<div style="margin-top:6px;">{link_html}</div>' if link_html else "")
                 + '</div>',
                 unsafe_allow_html=True,
             )
@@ -135,7 +137,7 @@ if query and query.strip():
         st.markdown(query)
 
     with st.chat_message("assistant"):
-        with st.spinner("🔎 Searching faculty database…"):
+        with st.spinner("Searching faculty database…"):
             full_text = st.write_stream(_stream_faculty(query))
 
     st.session_state.fac_messages.append({"role": "assistant", "content": full_text or ""})

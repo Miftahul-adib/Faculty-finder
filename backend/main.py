@@ -1,12 +1,19 @@
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from typing import Optional
+import base64
+import binascii
 import json
+import re
 import rag
 import student_db
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
+# Letters (incl. accented), spaces, dots, hyphens, apostrophes — no digits/symbols.
+NAME_RE  = re.compile(r"^(?=.*[^\W\d_])(?:[^\W\d_]|[ .'\-])+$", re.UNICODE)
 
 
 @asynccontextmanager
@@ -53,11 +60,28 @@ class UpdateProfileRequest(BaseModel):
     university: Optional[str] = None
     department: Optional[str] = None
     year: Optional[str] = None
+    research_interests: Optional[str] = None
+    research_summary: Optional[str] = None
+
+class CvUploadRequest(BaseModel):
+    filename: str
+    data_b64: str
+
+class PhotoUploadRequest(BaseModel):
+    data_b64: str
+    mime: str = "image/jpeg"
+
+class DocumentUploadRequest(BaseModel):
+    filename: str
+    label: str = ""
+    data_b64: str
 
 class PostRequest(BaseModel):
     title: str
     content: str = ""
     post_type: str = "work"
+    image_b64: Optional[str] = None
+    image_mime: str = "image/jpeg"
 
 class TagRequest(BaseModel):
     tag: str
@@ -106,7 +130,6 @@ def ask_endpoint(req: QueryRequest):
         "name":        c["name"],
         "designation": c.get("designation", ""),
         "department":  c.get("department", ""),
-        "email":       c.get("email", ""),
         "profile_url": c.get("profile_url", ""),
     } for c in candidates[:15]]
 
@@ -120,7 +143,18 @@ def ask_endpoint(req: QueryRequest):
 
 @app.post("/auth/signup")
 def signup(req: SignupRequest):
-    result = student_db.signup(req.name, req.email, req.password,
+    name  = req.name.strip()
+    email = req.email.strip().lower()
+    if not name or not NAME_RE.fullmatch(name):
+        raise HTTPException(status_code=400,
+                            detail="Full name can only contain letters, spaces, dots, hyphens and apostrophes — no numbers.")
+    if not EMAIL_RE.fullmatch(email):
+        raise HTTPException(status_code=400,
+                            detail="Please enter a valid email address (e.g. you@sust.edu).")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400,
+                            detail="Password must be at least 6 characters.")
+    result = student_db.signup(name, email, req.password,
                                req.university, req.department, req.year)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -158,18 +192,190 @@ def update_student(student_id: int, req: UpdateProfileRequest,
     auth_id = _require_auth(x_token)
     if auth_id != student_id:
         raise HTTPException(status_code=403, detail="Cannot edit another student's profile")
-    student_db.update_student(student_id, req.bio, req.university, req.department, req.year)
+    student_db.update_student(student_id, req.bio, req.university, req.department, req.year,
+                              req.research_interests, req.research_summary)
     return {"message": "Profile updated"}
 
 
+# ── CV upload / download ───────────────────────────────────────────────────
+
+_CV_ALLOWED_EXT = {".pdf", ".doc", ".docx"}
+_CV_MAX_BYTES   = 5 * 1024 * 1024  # 5 MB
+
+
+@app.post("/student/{student_id}/cv")
+def upload_cv(student_id: int, req: CvUploadRequest,
+              x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    fname = req.filename.strip().replace("\\", "/").split("/")[-1]
+    ext = ("." + fname.rsplit(".", 1)[-1].lower()) if "." in fname else ""
+    if ext not in _CV_ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail="CV must be a PDF, DOC or DOCX file.")
+    try:
+        data = base64.b64decode(req.data_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid file data.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > _CV_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="CV file must be under 5 MB.")
+    student_db.save_cv(student_id, fname, data)
+    return {"message": "CV uploaded"}
+
+
+@app.get("/student/{student_id}/cv")
+def download_cv(student_id: int):
+    cv = student_db.get_cv(student_id)
+    if not cv:
+        raise HTTPException(status_code=404, detail="No CV uploaded")
+    filename, data = cv
+    media = "application/pdf" if filename.lower().endswith(".pdf") else "application/octet-stream"
+    return Response(content=data, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.delete("/student/{student_id}/cv")
+def remove_cv(student_id: int, x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    student_db.delete_cv(student_id)
+    return {"message": "CV removed"}
+
+
+# ── Profile photo ──────────────────────────────────────────────────────────
+
+_PHOTO_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+_PHOTO_MAX_BYTES    = 2 * 1024 * 1024  # 2 MB (frontend resizes before upload)
+
+
+@app.post("/student/{student_id}/photo")
+def upload_photo(student_id: int, req: PhotoUploadRequest,
+                 x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if req.mime not in _PHOTO_ALLOWED_MIME:
+        raise HTTPException(status_code=400, detail="Photo must be JPEG, PNG or WebP.")
+    try:
+        data = base64.b64decode(req.data_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid image data.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image.")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Photo must be under 2 MB.")
+    student_db.save_photo(student_id, data, req.mime)
+    return {"message": "Photo updated"}
+
+
+@app.get("/student/{student_id}/photo")
+def get_photo(student_id: int):
+    photo = student_db.get_photo(student_id)
+    if not photo:
+        raise HTTPException(status_code=404, detail="No photo")
+    data, mime = photo
+    return Response(content=data, media_type=mime)
+
+
+@app.delete("/student/{student_id}/photo")
+def remove_photo(student_id: int, x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    student_db.delete_photo(student_id)
+    return {"message": "Photo removed"}
+
+
+# ── Documents ──────────────────────────────────────────────────────────────
+
+_DOC_ALLOWED_EXT = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt",
+                    ".png", ".jpg", ".jpeg"}
+_DOC_MAX_BYTES   = 10 * 1024 * 1024  # 10 MB
+_DOC_MIME = {
+    ".pdf": "application/pdf", ".txt": "text/plain",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+}
+
+
+@app.post("/student/{student_id}/documents")
+def upload_document(student_id: int, req: DocumentUploadRequest,
+                    x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    fname = req.filename.strip().replace("\\", "/").split("/")[-1]
+    ext = ("." + fname.rsplit(".", 1)[-1].lower()) if "." in fname else ""
+    if ext not in _DOC_ALLOWED_EXT:
+        raise HTTPException(status_code=400,
+                            detail="Allowed types: PDF, DOC, DOCX, PPT, PPTX, TXT, PNG, JPG.")
+    try:
+        data = base64.b64decode(req.data_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid file data.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > _DOC_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Documents must be under 10 MB.")
+    mime = _DOC_MIME.get(ext, "application/octet-stream")
+    student_db.add_document(student_id, fname, req.label.strip(), mime, data)
+    return {"message": "Document uploaded"}
+
+
+@app.get("/student/{student_id}/documents/{doc_id}")
+def download_document(student_id: int, doc_id: int):
+    doc = student_db.get_document(doc_id)
+    if not doc or doc["student_id"] != student_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return Response(content=doc["data"], media_type=doc["mime"],
+                    headers={"Content-Disposition": f'attachment; filename="{doc["filename"]}"'})
+
+
+@app.delete("/student/{student_id}/documents/{doc_id}")
+def remove_document(student_id: int, doc_id: int,
+                    x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    student_db.delete_document(doc_id, student_id)
+    return {"message": "Document removed"}
+
+
+# ── Home feed ──────────────────────────────────────────────────────────────
+
+@app.get("/student/{student_id}/feed")
+def student_feed(student_id: int, x_token: Optional[str] = Header(None)):
+    auth_id = _require_auth(x_token)
+    if auth_id != student_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return student_db.get_feed(student_id)
+
+
 # ── Posts ──────────────────────────────────────────────────────────────────
+
+_POST_IMG_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+_POST_IMG_MAX_BYTES    = 3 * 1024 * 1024  # 3 MB (frontend resizes before upload)
+
 
 @app.post("/student/{student_id}/posts")
 def add_post(student_id: int, req: PostRequest, x_token: Optional[str] = Header(None)):
     auth_id = _require_auth(x_token)
     if auth_id != student_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    student_db.add_post(student_id, req.title, req.content, req.post_type)
+    image_data = None
+    if req.image_b64:
+        if req.image_mime not in _POST_IMG_ALLOWED_MIME:
+            raise HTTPException(status_code=400, detail="Image must be JPEG, PNG or WebP.")
+        try:
+            image_data = base64.b64decode(req.image_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid image data.")
+        if len(image_data) > _POST_IMG_MAX_BYTES:
+            raise HTTPException(status_code=400, detail="Post image must be under 3 MB.")
+    student_db.add_post(student_id, req.title, req.content, req.post_type,
+                        image_data, req.image_mime if image_data else "")
     return {"message": "Post added"}
 
 
@@ -315,7 +521,6 @@ def ask_stream_endpoint(req: QueryRequest):
             "name":        c["name"],
             "designation": c.get("designation", ""),
             "department":  c.get("department", ""),
-            "email":       c.get("email", ""),
             "profile_url": c.get("profile_url", ""),
         } for c in candidates[:15]]
         yield f"data: {json.dumps({'done': True, 'candidates': top})}\n\n"

@@ -14,7 +14,8 @@ for key, default in [("token",""),("student_id",None),("student_name",""),
         st.session_state[key] = default
 
 page_header("Search PhD Students",
-            "Describe your research interest or collaboration goal — we'll find the right researchers")
+            "Describe your research interest or collaboration goal — we'll find the right researchers",
+            kicker="Find collaborators")
 
 st.markdown(
     '<div class="info-banner">'
@@ -61,7 +62,7 @@ def render_candidate_cards(candidates):
         meta_parts = [p for p in [dept, f"Sup: {super_}" if super_ else ""] if p]
         meta      = " · ".join(meta_parts)
         email_html = (f'<span style="font-family:Inter,sans-serif;font-size:0.73rem;'
-                      f'color:#6B8F52;">{email}</span>') if email else ""
+                      f'color:#6ECDA0;">{email}</span>') if email else ""
 
         # Source determines which save endpoint to use
         source = c.get("source", "phd")
@@ -167,7 +168,7 @@ if query and query.strip():
         st.markdown(query)
 
     with st.chat_message("assistant"):
-        with st.spinner("🔎 Searching PhD & student records…"):
+        with st.spinner("Searching PhD & student records…"):
             full_text = st.write_stream(_stream_phd(query))
 
     st.session_state.phd_messages.append({"role": "assistant", "content": full_text or ""})

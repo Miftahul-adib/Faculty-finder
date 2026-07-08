@@ -1,4 +1,5 @@
-import sqlite3, os, hashlib, secrets
+import sqlite3, os, hashlib, secrets, base64, re
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 DB_PATH = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
@@ -98,16 +99,55 @@ def setup_student_db():
                 expires_at TEXT NOT NULL,
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
+
+            CREATE TABLE IF NOT EXISTS student_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                label TEXT DEFAULT '',
+                mime TEXT DEFAULT 'application/octet-stream',
+                data BLOB,
+                uploaded_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (student_id) REFERENCES students(id)
+            );
         """)
+        _ensure_student_columns(con)
         con.commit()
     _seed_phd_students()
+    _seed_demo_students()
+
+
+def _ensure_student_columns(con):
+    """Migrate older DBs: add newer columns if missing."""
+    cols = [r[1] for r in con.execute("PRAGMA table_info('students')").fetchall()]
+    extra = {
+        "research_interests": "TEXT DEFAULT ''",
+        "research_summary":   "TEXT DEFAULT ''",
+        "cv_filename":        "TEXT DEFAULT ''",
+        "cv_data":            "BLOB",
+        "photo_data":         "BLOB",
+        "photo_mime":         "TEXT DEFAULT ''",
+    }
+    for col, decl in extra.items():
+        if col not in cols:
+            con.execute(f"ALTER TABLE students ADD COLUMN {col} {decl}")
+            print(f"  + students.{col} column added")
+
+    post_cols = [r[1] for r in con.execute("PRAGMA table_info('student_posts')").fetchall()]
+    for col, decl in {"image_data": "BLOB", "image_mime": "TEXT DEFAULT ''"}.items():
+        if col not in post_cols:
+            con.execute(f"ALTER TABLE student_posts ADD COLUMN {col} {decl}")
+            print(f"  + student_posts.{col} column added")
 
 
 def _hash_password(password: str, salt: str) -> str:
     return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
 
 
-_TARGET_PHD_COUNT = 35
+# Must match the number of rows in phd_data below — if the DB already has
+# this many, seeding is skipped (a reseed wipes embeddings, forcing a slow
+# re-embed on every startup).
+_TARGET_PHD_COUNT = 33
 
 def _seed_phd_students():
     with get_conn() as con:
@@ -348,6 +388,140 @@ def _seed_phd_students():
     print(f"Seeded {len(phd_data)} PhD students")
 
 
+# ── Demo student accounts (dummy data for the home feed) ──────────────────
+
+def _seed_demo_students():
+    """Seed ~12 demo students with interests, tags and posts so the home
+    feed has content. Skipped if demo accounts already exist."""
+    with get_conn() as con:
+        existing = con.execute(
+            "SELECT COUNT(*) FROM students WHERE email LIKE '%@student.sust.edu'"
+        ).fetchone()[0]
+        if existing:
+            print(f"  Demo students already seeded ({existing}) — skipping.")
+            return
+
+    # (name, email, dept, year, interests, bio, tags, posts)
+    # posts: (title, content, type, days_ago)
+    demo = [
+        ("Nusrat Jahan", "nusrat@student.sust.edu", "CSE", "3rd Year",
+         "Machine Learning, Bangla NLP, Text Mining",
+         "CSE undergrad exploring low-resource NLP. Currently obsessed with tokenizers.",
+         ["Looking for research partner in NLP", "Seeking thesis partner"],
+         [("Built a Bangla sentiment analysis model on 50k Facebook comments",
+           "Fine-tuned BanglaBERT and got 87% F1. Happy to share the cleaned dataset if anyone is working on Bangla social media text.",
+           "work", 2),
+          ("Reading up on transformer fine-tuning tricks",
+           "LoRA vs full fine-tuning for small Bangla corpora — if you have experience with either, would love to compare notes.",
+           "interest", 9)]),
+        ("Tanvir Hasan", "tanvir.h@student.sust.edu", "CSE", "4th Year",
+         "Computer Vision, Deep Learning, Medical Imaging",
+         "Final-year thesis on medical image analysis. Kaggle addict.",
+         ["Looking for research partner in Computer Vision", "Looking for co-author"],
+         [("Chest X-ray pneumonia detection — thesis progress",
+           "Trained an EfficientNet-B3 on the RSNA dataset, currently at 0.91 AUC. Struggling with class imbalance — tips welcome.",
+           "project", 1),
+          ("Won silver in a Kaggle medical imaging competition",
+           "Team of three, segmentation task on CT scans. Ask me anything about the pipeline.",
+           "work", 14)]),
+        ("Sadia Afrin", "sadia.a@student.sust.edu", "CSE", "Masters",
+         "NLP, Large Language Models, Retrieval-Augmented Generation",
+         "Masters student benchmarking RAG pipelines for Bangla question answering.",
+         ["Looking for research partner in NLP", "Open to research collaboration"],
+         [("Comparing RAG pipelines for Bangla QA",
+           "Evaluated 4 retrieval setups on a custom Bangla Wikipedia benchmark. Hybrid BM25 + dense retrieval wins by a wide margin.",
+           "work", 3),
+          ("AWS Machine Learning Specialty — certified",
+           "Took about 6 weeks of prep alongside coursework. Happy to share my notes and practice resources.",
+           "certification", 21)]),
+        ("Fahim Rahman", "fahim.r@student.sust.edu", "EEE", "4th Year",
+         "IoT, Embedded Systems, Smart Grid",
+         "Building cheap sensors for real problems. ESP32 evangelist.",
+         ["Looking for research partner in IoT", "Looking for industry partner"],
+         [("Smart energy meter prototype working!",
+           "ESP32 + current clamp + MQTT dashboard, total cost under 1500 taka. Next step: anomaly detection on usage patterns.",
+           "project", 4)]),
+        ("Maliha Chowdhury", "maliha.c@student.sust.edu", "STA", "Masters",
+         "Time Series Forecasting, Climate Data, Machine Learning",
+         "Statistics masters student working on flood forecasting for Sylhet haors.",
+         ["Open to research collaboration", "Looking for co-author"],
+         [("LSTM vs SARIMA for flood forecasting — surprising results",
+           "On BWDB water-level data, a well-tuned SARIMA beat my LSTM on 7-day horizon. Writing this up — looking for a co-author with ML background.",
+           "work", 5)]),
+        ("Rakib Uddin", "rakib.u@student.sust.edu", "CSE", "3rd Year",
+         "Cybersecurity, Network Security, Anomaly Detection",
+         "Blue-team enthusiast. CTF player on weekends.",
+         ["Open to research collaboration"],
+         [("Exploring graph neural networks for intrusion detection",
+           "Reading the recent literature on GNN-based IDS. If anyone has network flow datasets or works in this area, let's talk.",
+           "interest", 6)]),
+        ("Farhana Akter", "farhana.a@student.sust.edu", "CSE", "Masters",
+         "Bioinformatics, Genomics, Deep Learning",
+         "Computational biology fan — proteins are just very confusing strings.",
+         ["Looking for research partner in Bioinformatics"],
+         [("Mini-review: deep learning for protein structure prediction",
+           "Wrote a 10-page review of AlphaFold-style methods for our journal club. DM if you want the PDF.",
+           "work", 8)]),
+        ("Shakil Ahmed", "shakil.a@student.sust.edu", "CSE", "4th Year",
+         "Computer Vision, Edge AI, Robotics",
+         "Robotics club lead. I make cameras think on tiny chips.",
+         ["Available for project collaboration", "Looking for industry partner"],
+         [("Vision-based line follower — 2nd place at robotics fest",
+           "Raspberry Pi Zero + quantized MobileNet, full lap in 42 seconds. Code is on my GitHub.",
+           "project", 7),
+          ("TensorFlow Developer Certificate",
+           "Finally done with it. The image classification section is very doable if you have used Keras before.",
+           "certification", 25)]),
+        ("Tasnim Rahman", "tasnim.r@student.sust.edu", "IPE", "Masters",
+         "Operations Research, Optimization, Supply Chain",
+         "IPE grad student. I optimize things that don't want to be optimized.",
+         ["Open to research collaboration"],
+         [("Won the inter-university hackathon with a vehicle routing solver",
+           "OR-Tools + a custom heuristic for last-mile delivery in Dhaka traffic. The judges liked the cost dashboard the most.",
+           "work", 10)]),
+        ("Mehjabin Khan", "mehjabin.k@student.sust.edu", "CSE", "2nd Year",
+         "Web Development, Machine Learning, Data Visualization",
+         "Second-year student learning ML by building dashboards nobody asked for.",
+         ["Available for project collaboration"],
+         [("Interactive dashboard of SUST admission statistics",
+           "Built with Plotly + Streamlit from public data. Looking for ideas on what campus dataset to visualize next.",
+           "project", 11)]),
+        ("Arnob Das", "arnob.d@student.sust.edu", "PHY", "Masters",
+         "Quantum Computing, Computational Physics",
+         "Physics masters student simulating small quantum systems on big classical machines.",
+         ["Open to research collaboration"],
+         [("Completed Qiskit Global Summer School",
+           "Two intense weeks of quantum machine learning. The variational circuits lab was the highlight.",
+           "certification", 13)]),
+        ("Lamia Hossain", "lamia.h@student.sust.edu", "CSE", "Masters",
+         "Human-Computer Interaction, Accessibility, Machine Learning",
+         "HCI researcher-in-training. Technology should work for everyone.",
+         ["Looking for co-author", "Open to research collaboration"],
+         [("Usability study: screen readers on Bangla government websites",
+           "Ran a 12-participant study — results are honestly grim. Preparing a paper; need a co-author comfortable with statistics.",
+           "work", 12)]),
+    ]
+
+    with get_conn() as con:
+        for name, email, dept, year, interests, bio, tags, posts in demo:
+            salt = secrets.token_hex(16)
+            cur = con.execute(
+                "INSERT INTO students (name,email,password_hash,salt,university,department,year,bio,research_interests) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (name, email, _hash_password("demo123", salt), salt,
+                 "SUST", dept, year, bio, interests))
+            sid = cur.lastrowid
+            for tag in tags:
+                con.execute("INSERT INTO student_tags (student_id,tag) VALUES (?,?)", (sid, tag))
+            for title, content, ptype, days_ago in posts:
+                con.execute(
+                    "INSERT INTO student_posts (student_id,title,content,post_type,created_at) "
+                    "VALUES (?,?,?,?,datetime('now', ?))",
+                    (sid, title, content, ptype, f"-{days_ago} days"))
+        con.commit()
+    print(f"Seeded {len(demo)} demo students with posts")
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────
 
 def signup(name, email, password, university="SUST", department="", year=""):
@@ -405,28 +579,46 @@ def logout(token):
 def get_student(student_id):
     with get_conn() as con:
         row = con.execute(
-            "SELECT id,name,email,university,department,year,bio FROM students WHERE id=?",
+            "SELECT id,name,email,university,department,year,bio,"
+            "research_interests,research_summary,cv_filename,photo_data,photo_mime "
+            "FROM students WHERE id=?",
             (student_id,)
         ).fetchone()
         if not row:
             return None
         student = dict(row)
+        photo = student.pop("photo_data", None)
+        student["photo_b64"] = base64.b64encode(photo).decode() if photo else None
         student["tags"]  = [dict(r) for r in con.execute(
             "SELECT id,tag FROM student_tags WHERE student_id=? ORDER BY created_at DESC", (student_id,)
         ).fetchall()]
-        student["posts"] = [dict(r) for r in con.execute(
-            "SELECT id,title,content,post_type,created_at FROM student_posts WHERE student_id=? ORDER BY created_at DESC",
+        student["posts"] = []
+        for r in con.execute(
+            "SELECT id,title,content,post_type,created_at,image_data,image_mime "
+            "FROM student_posts WHERE student_id=? ORDER BY created_at DESC",
+            (student_id,)
+        ).fetchall():
+            p = dict(r)
+            img = p.pop("image_data", None)
+            p["image_b64"] = base64.b64encode(img).decode() if img else None
+            student["posts"].append(p)
+        student["documents"] = [dict(r) for r in con.execute(
+            "SELECT id,filename,label,mime,uploaded_at,LENGTH(data) AS size "
+            "FROM student_documents WHERE student_id=? ORDER BY uploaded_at DESC",
             (student_id,)
         ).fetchall()]
     return student
 
 
-def update_student(student_id, bio=None, university=None, department=None, year=None):
+def update_student(student_id, bio=None, university=None, department=None, year=None,
+                   research_interests=None, research_summary=None):
     fields, vals = [], []
-    if bio is not None:        fields.append("bio=?");        vals.append(bio)
-    if university is not None: fields.append("university=?"); vals.append(university)
-    if department is not None: fields.append("department=?"); vals.append(department)
-    if year is not None:       fields.append("year=?");       vals.append(year)
+    if bio is not None:                fields.append("bio=?");                vals.append(bio)
+    if university is not None:         fields.append("university=?");         vals.append(university)
+    if department is not None:         fields.append("department=?");         vals.append(department)
+    if year is not None:               fields.append("year=?");               vals.append(year)
+    if research_interests is not None: fields.append("research_interests=?"); vals.append(research_interests)
+    if research_summary is not None:   fields.append("research_summary=?");   vals.append(research_summary)
     if not fields:
         return
     vals.append(student_id)
@@ -435,13 +627,182 @@ def update_student(student_id, bio=None, university=None, department=None, year=
         con.commit()
 
 
-# ── Posts ──────────────────────────────────────────────────────────────────
+# ── CV upload/download ─────────────────────────────────────────────────────
 
-def add_post(student_id, title, content, post_type="work"):
+def save_cv(student_id, filename, data: bytes):
+    with get_conn() as con:
+        con.execute("UPDATE students SET cv_filename=?, cv_data=? WHERE id=?",
+                    (filename, data, student_id))
+        con.commit()
+
+
+def get_cv(student_id):
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT cv_filename, cv_data FROM students WHERE id=?", (student_id,)
+        ).fetchone()
+    if not row or not row["cv_data"]:
+        return None
+    return row["cv_filename"], row["cv_data"]
+
+
+def delete_cv(student_id):
+    with get_conn() as con:
+        con.execute("UPDATE students SET cv_filename='', cv_data=NULL WHERE id=?",
+                    (student_id,))
+        con.commit()
+
+
+# ── Profile photo ──────────────────────────────────────────────────────────
+
+def save_photo(student_id, data: bytes, mime: str):
+    with get_conn() as con:
+        con.execute("UPDATE students SET photo_data=?, photo_mime=? WHERE id=?",
+                    (data, mime, student_id))
+        con.commit()
+
+
+def get_photo(student_id):
+    with get_conn() as con:
+        row = con.execute("SELECT photo_data, photo_mime FROM students WHERE id=?",
+                          (student_id,)).fetchone()
+    if not row or not row["photo_data"]:
+        return None
+    return row["photo_data"], row["photo_mime"] or "image/jpeg"
+
+
+def delete_photo(student_id):
+    with get_conn() as con:
+        con.execute("UPDATE students SET photo_data=NULL, photo_mime='' WHERE id=?",
+                    (student_id,))
+        con.commit()
+
+
+# ── Documents (LinkedIn-style attachments) ─────────────────────────────────
+
+def add_document(student_id, filename, label, mime, data: bytes):
     with get_conn() as con:
         con.execute(
-            "INSERT INTO student_posts (student_id,title,content,post_type) VALUES (?,?,?,?)",
-            (student_id, title, content, post_type)
+            "INSERT INTO student_documents (student_id,filename,label,mime,data) VALUES (?,?,?,?,?)",
+            (student_id, filename, label, mime, data))
+        con.commit()
+
+
+def get_document(doc_id):
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT student_id, filename, mime, data FROM student_documents WHERE id=?",
+            (doc_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_document(doc_id, student_id):
+    with get_conn() as con:
+        con.execute("DELETE FROM student_documents WHERE id=? AND student_id=?",
+                    (doc_id, student_id))
+        con.commit()
+
+
+# ── Home feed — posts from students with overlapping interests ─────────────
+
+_FEED_STOP = {
+    "in", "on", "of", "to", "at", "is", "as", "an", "or", "be", "by", "my",
+    "we", "if", "it", "do", "up", "so", "am", "me", "the", "and", "for",
+    "with", "from", "using", "based", "into", "about", "this", "that", "are",
+    "was", "has", "have", "had", "not", "but", "you", "your", "our", "his",
+    "her", "its", "them", "they", "one", "two", "next", "new", "also", "very",
+    "open", "looking", "seeking", "research", "partner", "collaboration",
+    "student", "students", "interested", "interests", "area", "areas",
+    "work", "working", "currently", "exploring", "reading", "building",
+    "thesis", "paper", "project", "projects", "study", "results",
+}
+
+
+def _keywords(text: str) -> set:
+    words = re.findall(r"[a-zA-Z]{2,}", (text or "").lower())
+    return {w for w in words if w not in _FEED_STOP}
+
+
+def get_feed(student_id, limit=20):
+    """Posts by other students, ranked by keyword overlap between the viewer's
+    interests/tags/bio and each author's interests/tags (plus the post text)."""
+    with get_conn() as con:
+        me = con.execute(
+            "SELECT research_interests, bio FROM students WHERE id=?",
+            (student_id,)).fetchone()
+        if not me:
+            return []
+        my_tags = [r["tag"] for r in con.execute(
+            "SELECT tag FROM student_tags WHERE student_id=?", (student_id,)).fetchall()]
+        my_kw = _keywords(" ".join(filter(None, [me["research_interests"], me["bio"], *my_tags])))
+        my_phrases = [p.strip() for p in (me["research_interests"] or "").split(",") if p.strip()]
+
+        posts = con.execute("""
+            SELECT p.id, p.title, p.content, p.post_type, p.created_at,
+                   p.image_data, p.image_mime,
+                   s.id AS author_id, s.name AS author_name, s.department,
+                   s.university, s.year, s.research_interests,
+                   s.photo_data, s.photo_mime
+            FROM student_posts p
+            JOIN students s ON s.id = p.student_id
+            WHERE p.student_id != ?
+            ORDER BY p.created_at DESC
+            LIMIT 300
+        """, (student_id,)).fetchall()
+
+        tags_by = defaultdict(list)
+        for r in con.execute("SELECT student_id, tag FROM student_tags").fetchall():
+            tags_by[r["student_id"]].append(r["tag"])
+
+    def _display_matches(shared: set) -> list:
+        """Show the viewer's own interest phrases ('Machine Learning') that
+        overlap, falling back to raw shared words if none do."""
+        hits = [p for p in my_phrases if _keywords(p) & shared]
+        if hits:
+            return hits[:3]
+        return [w.title() for w in sorted(shared)[:3]]
+
+    items = []
+    for r in posts:
+        author_kw = _keywords(" ".join(filter(None, [r["research_interests"], *tags_by[r["author_id"]]])))
+        post_kw   = _keywords(f"{r['title']} {r['content'] or ''}")
+        shared    = my_kw & (author_kw | post_kw)
+        items.append({
+            "post_id":     r["id"],
+            "title":       r["title"],
+            "content":     r["content"] or "",
+            "post_type":   r["post_type"],
+            "created_at":  r["created_at"],
+            "image_b64":   base64.b64encode(r["image_data"]).decode() if r["image_data"] else None,
+            "image_mime":  r["image_mime"] or "image/jpeg",
+            "match_score": len(shared),
+            "matched":     _display_matches(shared) if shared else [],
+            "author": {
+                "id":         r["author_id"],
+                "name":       r["author_name"],
+                "department": r["department"] or "",
+                "university": r["university"] or "",
+                "year":       r["year"] or "",
+                "interests":  r["research_interests"] or "",
+                "photo_b64":  base64.b64encode(r["photo_data"]).decode() if r["photo_data"] else None,
+                "photo_mime": r["photo_mime"] or "image/jpeg",
+            },
+        })
+
+    items.sort(key=lambda i: i["created_at"], reverse=True)
+    items.sort(key=lambda i: i["match_score"], reverse=True)
+    return items[:limit]
+
+
+# ── Posts ──────────────────────────────────────────────────────────────────
+
+def add_post(student_id, title, content, post_type="work",
+             image_data=None, image_mime=""):
+    with get_conn() as con:
+        con.execute(
+            "INSERT INTO student_posts (student_id,title,content,post_type,image_data,image_mime) "
+            "VALUES (?,?,?,?,?,?)",
+            (student_id, title, content, post_type, image_data, image_mime)
         )
         con.commit()
 

@@ -20,6 +20,10 @@ load_dotenv()
 HF_TOKEN           = os.environ["HF_TOKEN"]
 HF_PROVIDER        = os.getenv("HF_PROVIDER", "auto")
 LLM_MODEL          = os.getenv("LLM_MODEL", "google/gemma-4-26B-A4B-it")
+DEEPSEEK_API_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL     = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_BASE_URL  = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+USE_DEEPSEEK       = os.getenv("USE_DEEPSEEK", "true").lower() == "true" and bool(DEEPSEEK_API_KEY)
 # ── CHANGED: full HF model ID required for Inference API ──────────────────
 EMBED_MODEL_NAME   = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 DB_PATH            = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
@@ -37,6 +41,14 @@ hf_login(token=HF_TOKEN, add_to_git_credential=False)
 hf_client = InferenceClient(token=HF_TOKEN, provider=HF_PROVIDER)
 print(f"HF client ready | model: {LLM_MODEL}")
 print(f"Embedding model : {EMBED_MODEL_NAME} (via HF Inference API)")
+
+# DeepSeek (OpenAI-compatible API) — primary chat LLM when configured.
+# Embeddings still go through HF (DeepSeek has no embeddings endpoint).
+deepseek_client = None
+if USE_DEEPSEEK:
+    from openai import OpenAI
+    deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    print(f"DeepSeek client ready | model: {DEEPSEEK_MODEL} (primary LLM, HF as fallback)")
 
 # ══════════════════════════════════════════════════════════════════════════
 #  EMBEDDING HELPER  (replaces SentenceTransformer)
@@ -193,6 +205,34 @@ def load_faculty_index():
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 5 — LLM WRAPPER (Gemma 4 via HF API)
 # ══════════════════════════════════════════════════════════════════════════
+def _chat_providers() -> list:
+    """Ordered list of chat providers: DeepSeek first (if configured), HF fallback."""
+    return (["deepseek"] if USE_DEEPSEEK else []) + ["hf"]
+
+
+def _chat_once(provider: str, messages: list, max_tokens: int, temperature: float) -> str:
+    if provider == "deepseek":
+        # deepseek-v4-flash is a reasoning model: it spends tokens thinking
+        # before answering, so small budgets (router calls) yield empty content.
+        resp = deepseek_client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=messages,
+            max_tokens=max(max_tokens, 1000),
+            temperature=max(temperature, 0.01),
+        )
+    else:
+        resp = hf_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=max(temperature, 0.01),
+        )
+    text = (resp.choices[0].message.content or "").strip()
+    if not text:
+        raise RuntimeError(f"{provider} returned an empty response")
+    return text
+
+
 def llm_call(
     system_prompt: str,
     user_content:  str,
@@ -201,27 +241,22 @@ def llm_call(
     label:         str   = "",
 ) -> str:
     """
-    Call Gemma 4 via HuggingFace Inference API.
-    Gemma 4 natively supports the system role — no merging needed.
+    Chat completion — DeepSeek primary, HuggingFace (Gemma) fallback.
+    Both APIs support the system role natively.
     """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user",   "content": user_content},
     ]
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = hf_client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=max(temperature, 0.01),
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"  [LLM attempt {attempt}/{MAX_RETRIES}] {label} error: {e}")
-            gc.collect()
-            if attempt < MAX_RETRIES:
-                time.sleep(2 * attempt)
+    for provider in _chat_providers():
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                return _chat_once(provider, messages, max_tokens, temperature)
+            except Exception as e:
+                print(f"  [LLM {provider} attempt {attempt}/{MAX_RETRIES}] {label} error: {e}")
+                gc.collect()
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
     return ""
 
 
@@ -231,25 +266,51 @@ def stream_llm(
     max_tokens:    int   = 5000,
     temperature:   float = 0.1,
 ):
-    """Generator — streams LLM response token by token via HF streaming API."""
+    """
+    Generator — streams LLM response token by token.
+    Tries DeepSeek first; if it fails before producing any output,
+    silently retries on the HF fallback so the user never sees the error.
+    """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user",   "content": user_content},
     ]
-    try:
-        stream = hf_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=max(temperature, 0.01),
-            stream=True,
-        )
-        for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            if token:
-                yield token
-    except Exception as e:
-        yield f"\n\n[Error: {e}]"
+    last_err = None
+    for provider in _chat_providers():
+        started = False
+        try:
+            if provider == "deepseek":
+                stream = deepseek_client.chat.completions.create(
+                    model=DEEPSEEK_MODEL, messages=messages,
+                    max_tokens=max(max_tokens, 1000), temperature=max(temperature, 0.01),
+                    stream=True,
+                )
+            else:
+                stream = hf_client.chat.completions.create(
+                    model=LLM_MODEL, messages=messages,
+                    max_tokens=max_tokens, temperature=max(temperature, 0.01),
+                    stream=True,
+                )
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                token = chunk.choices[0].delta.content or ""
+                if token:
+                    started = True
+                    yield token
+            if started:
+                return
+            # Stream finished without any visible content — try next provider.
+            last_err = RuntimeError(f"{provider} streamed an empty response")
+            print(f"  [STREAM {provider}] empty response — falling back")
+        except Exception as e:
+            last_err = e
+            print(f"  [STREAM {provider}] error: {e}")
+            if started:
+                # Partial answer already sent — don't restart with another provider.
+                yield f"\n\n[Error: {e}]"
+                return
+    yield f"\n\n[Error: {last_err}]"
 
 # ══════════════════════════════════════════════════════════════════════════
 #  CELL 6 — ROUTER
@@ -366,10 +427,14 @@ INPUTS
 YOUR TASK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Step 1 — Read EVERY faculty profile in full before writing anything.
-Step 2 — List ALL provided faculty. These profiles were pre-selected by \
-semantic similarity, so every one of them is relevant to some degree. \
-NEVER skip or omit any profile. Rank from most to least relevant.
-Step 3 — Write the structured response below.
+Step 2 — Judge each profile's relevance to the query. KEEP faculty whose \
+profile explicitly mentions research areas, methods, projects, or application \
+domains connected to the query. A partial match is fine — e.g. the profile \
+matches the method (deep learning) but not the application domain (medical \
+imaging) — as long as you clearly state which aspect matches. SILENTLY DROP \
+any profile with no meaningful connection to any part of the query — do not \
+mention dropped faculty anywhere. Rank the kept faculty from most to least relevant.
+Step 3 — Write the structured response below using only the kept faculty.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REQUIRED OUTPUT FORMAT
@@ -377,13 +442,11 @@ REQUIRED OUTPUT FORMAT
 
 ---
 ## Overview
-<5–8 sentences. Name the top 3–5 strongest matches and explain why. \
-Briefly mention what the remaining faculty contribute.>
+<5–8 sentences. Name the top 3–5 strongest matches and explain why.>
 
 ---
 ## Faculty Matches
-<Repeat the block below for EVERY faculty member provided, ranked best-first. \
-Include ALL of them — never omit any.>
+<Repeat the block below for every KEPT faculty member, ranked best-first.>
 
 ### [Rank]. [Full Name] — [Designation], [Department]
 
@@ -391,13 +454,15 @@ Include ALL of them — never omit any.>
 research areas, methods, projects, and application domains align with the query. \
 Discuss any techniques or tools they use that are directly relevant. \
 Where multiple aspects of the query connect to their work, address each one. \
-For lower-ranked entries 3–4 sentences covering partial overlap is acceptable.>
+For lower-ranked entries 3–4 sentences covering partial overlap is acceptable. \
+Every sentence must be grounded in facts from the profile — if you cannot ground \
+the match, the faculty member must be dropped instead. NEVER write filler such as \
+"no specific data is available to confirm", "while not directly related", or any \
+similar hedging.>
 
 **Research focus:** <A thorough list of their research topics, methodologies, \
 tools, frameworks, and application domains exactly as stated in the profile. \
 Separate each distinct area with a bullet (•).>
-
-**Email:** <Email if provided in the profile data, otherwise omit this line.>
 
 **Profile:** <URL only if explicitly present in the profile data. Omit if absent — \
 never construct or guess URLs.>
@@ -413,10 +478,14 @@ pairings, and any honest gaps in the available expertise.>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRICT RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- List ALL provided profiles — never skip one.
-- Keep each entry concise (4–6 lines) so all 15 fit in the response.
+- Include ONLY faculty whose relevance you can justify from their profile. \
+  Listing fewer, well-justified matches is always better than padding the list.
+- NEVER write "no specific data available", "cannot confirm", or similar filler — \
+  if there is nothing to confirm the match, drop that faculty member entirely.
+- Keep each entry concise (4–6 lines).
 - Only use facts explicitly stated in the profiles. Never infer or expand.
-- Never fabricate emails, URLs, or publication titles.
+- Never fabricate emails, URLs, or publication titles. Do not include email \
+  addresses in the response — direct students to the profile URL instead.
 - Use the exact designation — do not upgrade academic rank.
 - Forbidden expansions: "health data" → NOT "machine learning", \
   "cryptography" → NOT "cybersecurity", "signal processing" → NOT "neural networks".
@@ -429,7 +498,6 @@ def build_context(candidates: list) -> str:
             f"=== FACULTY {i}: {p.get('name', '-')} ===\n"
             f"Designation : {p.get('designation', '-')}\n"
             f"Department  : {p.get('department', '-')}\n"
-            f"Email       : {p.get('email') or 'N/A'}\n"
             f"Profile URL : {p.get('profile_url') or 'N/A'}\n"
             f"Similarity  : {p.get('similarity_score', 0)}\n"
         )
@@ -567,10 +635,11 @@ INPUTS
 YOUR TASK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Step 1 — Read EVERY profile in full before writing anything.
-Step 2 — Include ALL profiles as matches. These candidates were pre-selected \
-by semantic similarity, so EVERY one of them is relevant to some degree. \
-DO NOT skip or omit any profile — list all of them, ranked from most to least relevant.
-Step 3 — Write the structured response below.
+Step 2 — Judge each profile's relevance. KEEP only researchers whose profile \
+explicitly mentions research areas, thesis work, or tags connected to the query. \
+SILENTLY DROP profiles you cannot connect to the query — do not mention them. \
+Rank the kept researchers from most to least relevant.
+Step 3 — Write the structured response below using only the kept researchers.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REQUIRED OUTPUT FORMAT
@@ -612,7 +681,10 @@ pairings, and any honest gaps.>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- List ALL provided profiles — never skip one.
+- Include ONLY researchers whose relevance you can justify from their profile — \
+  fewer well-justified matches beat a padded list.
+- NEVER write "no specific data available", "cannot confirm", or similar filler — \
+  drop the profile instead.
 - Only use facts explicitly stated in the profiles.
 - Never fabricate emails, supervisors, or research areas.
 - Never expand or infer research areas beyond what is written.

@@ -6,10 +6,10 @@ st.set_page_config(page_title=APP_NAME, page_icon=APP_ICON,
 st.markdown(BASE_CSS, unsafe_allow_html=True)
 st.logo("assets/logo.svg", icon_image="assets/logo_icon.svg")
 
-home           = st.Page("views/home.py", title="Home", icon="🏠", default=True)
-search_faculty = st.Page("pages/1_Search_Faculty.py", title="Search Faculty", icon="🔍")
-search_phd     = st.Page("pages/2_Search_PhD_Students.py", title="Search PhD Students", icon="👥")
-profile        = st.Page("pages/3_My_Profile.py", title="My Profile", icon="👤")
+home           = st.Page("views/home.py", title="Home", default=True)
+search_faculty = st.Page("pages/1_Search_Faculty.py", title="Search Faculty")
+search_phd     = st.Page("pages/2_Search_PhD_Students.py", title="Search PhD Students")
+profile        = st.Page("pages/3_My_Profile.py", title="My Profile")
 
 # Rendered manually (instead of Streamlit's auto nav) so the sidebar's
 # contents are always fully visible, with no collapse/hide behavior.

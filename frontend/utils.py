@@ -1,4 +1,6 @@
 import os
+from datetime import datetime, timezone
+
 import requests
 import streamlit as st
 
@@ -23,29 +25,19 @@ SUGGESTED_TAGS = [
     "Seeking thesis partner",
 ]
 
+# ── Color palette (greens) ──────────────────────────────────
+#  #04140E deepest   #092219 very dark   #0D2E22 background
+#  #153D2E card base #1B4B38 borders     #246142 accent line
+#  #2E7E56 primary   #3C9C6E secondary   #4FB489 muted text
+#  #6ECDA0 hover     #8FE0B8 light       #C6EFDA body text
+#  #D9F7E6 chips     #ECFCF3 headings
+# ────────────────────────────────────────────────────────────
+
 BASE_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-/* ── Color palette (7 shades of green) ─────────────────────
-   #04140E  deepest dark
-   #092219  very dark bg
-   #0D2E22  main background
-   #153D2E  sidebar / card base
-   #1B4B38  elevated card
-   #246142  accent borders
-   #2E7E56  primary / buttons
-   #3C9C6E  secondary accent
-   #4FB489  links / meta text
-   #6ECDA0  active / hover
-   #8FE0B8  light accent
-   #C6EFDA  body text
-   #D9F7E6  tag chips / badges
-   #ECFCF3  headings on dark
-   #F1FAF6  light card bg
-──────────────────────────────────────────────────────────── */
 
 html, body, .stApp,
 [data-testid="stApp"],
@@ -59,8 +51,8 @@ html, body, .stApp,
 }
 
 .block-container {
-    max-width: 860px !important;
-    padding-top: 2.5rem !important;
+    max-width: 820px !important;
+    padding-top: 2.2rem !important;
     padding-bottom: 7rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
@@ -70,9 +62,6 @@ html, body, .stApp,
 [data-testid="stToolbar"],
 [data-testid="baseButton-headerNoPadding"] { display: none !important; }
 
-/* Keep the header bar itself (not display:none) so the sidebar
-   collapse/expand arrow it contains stays visible and clickable —
-   just make it blend into the background. */
 [data-testid="stHeader"] {
     background: transparent !important;
     box-shadow: none !important;
@@ -81,88 +70,71 @@ html, body, .stApp,
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #071B14 0%, #0C2A20 50%, #0D2E22 100%) !important;
+    background: #0A241B !important;
     border-right: 1px solid #153D2E !important;
-    min-width: 260px !important;
+    min-width: 250px !important;
 }
 [data-testid="stSidebar"] * { color: #8FE0B8 !important; }
-
-/* Sidebar is always open — hide the collapse control entirely so it
-   can't be closed (and there's nothing to bring back). */
 [data-testid="stSidebarCollapseButton"],
 [data-testid="stExpandSidebarButton"] { display: none !important; }
 
 [data-testid="stSidebar"] a {
-    border-radius: 8px !important;
-    padding: 0.45rem 0.9rem !important;
-    margin: 3px 0 !important;
+    border-radius: 9px !important;
+    padding: 0.5rem 0.9rem !important;
+    margin: 2px 0 !important;
     transition: background 0.15s !important;
     text-decoration: none !important;
+    font-size: 0.9rem !important;
 }
 [data-testid="stSidebar"] a:hover {
-    background: rgba(110,205,160,0.12) !important;
+    background: rgba(110,205,160,0.10) !important;
     color: #ECFCF3 !important;
 }
 [data-testid="stSidebar"] [aria-current="page"] {
-    background: rgba(60,156,110,0.22) !important;
+    background: rgba(60,156,110,0.18) !important;
     color: #D9F7E6 !important;
-    font-weight: 700 !important;
-    border-left: 3px solid #3C9C6E !important;
+    font-weight: 600 !important;
+    box-shadow: inset 3px 0 0 #3C9C6E !important;
 }
 
-/* ── Landing hero (logged-out intro) ────────────────────────── */
+/* ── Landing hero (logged-out) ───────────────────────────── */
 .landing-hero {
     position: relative;
     text-align: center;
-    padding: 2.2rem 1rem 1.6rem 1rem;
-    overflow: hidden;
-}
-.landing-glow {
-    position: absolute;
-    top: -140px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 480px;
-    height: 320px;
-    background: radial-gradient(circle, rgba(60,156,110,0.35) 0%, rgba(60,156,110,0) 70%);
-    pointer-events: none;
-    z-index: 0;
+    padding: 2.6rem 0 1.8rem 0;
 }
 .landing-badge {
-    position: relative;
-    z-index: 1;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(60,156,110,0.14);
-    border: 1px solid rgba(60,156,110,0.4);
+    background: rgba(60,156,110,0.12);
+    border: 1px solid rgba(60,156,110,0.35);
     color: #6ECDA0 !important;
     font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
     text-transform: uppercase;
-    padding: 5px 14px;
+    padding: 5px 12px;
     border-radius: 999px;
     margin-bottom: 1.1rem;
 }
 .landing-title {
-    position: relative;
-    z-index: 1;
     font-family: 'Sora', sans-serif;
-    font-size: 3rem;
+    font-size: 2.7rem;
     font-weight: 800;
-    line-height: 1.05;
-    letter-spacing: -1.2px;
-    background: linear-gradient(135deg, #ECFCF3 15%, #6ECDA0 60%, #2E7E56 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    line-height: 1.12;
+    letter-spacing: -0.8px;
+    color: #ECFCF3;
+    max-width: 620px;
+    margin: 0 auto;
+}
+.landing-title em {
+    font-style: normal;
+    color: #6ECDA0;
 }
 .landing-subtitle {
-    position: relative;
-    z-index: 1;
-    max-width: 480px;
+    max-width: 540px;
     margin: 0.9rem auto 0 auto;
     font-family: 'Inter', sans-serif;
     font-size: 1rem;
@@ -170,72 +142,76 @@ html, body, .stApp,
     line-height: 1.65;
 }
 .landing-stats {
-    position: relative;
-    z-index: 1;
     display: flex;
     justify-content: center;
-    gap: 2.2rem;
+    gap: 2.4rem;
     margin-top: 1.8rem;
     flex-wrap: wrap;
 }
 .landing-stat-num {
     font-family: 'Sora', sans-serif;
-    font-size: 1.4rem;
-    font-weight: 800;
+    font-size: 1.3rem;
+    font-weight: 700;
     color: #ECFCF3;
 }
 .landing-stat-label {
     font-family: 'Inter', sans-serif;
     font-size: 0.72rem;
     color: #4FB489;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     margin-top: 2px;
+    text-transform: uppercase;
 }
 
-/* ── Page header ──────────────────────────────────────────── */
+/* ── Page header (centered) ──────────────────────────────── */
 .page-hero {
     text-align: center;
-    padding: 0.5rem 0 2rem 0;
+    padding: 0.3rem 0 1.6rem 0;
+    border-bottom: 1px solid #153D2E;
+    margin-bottom: 1.4rem;
+}
+.page-kicker {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #3C9C6E;
+    margin-bottom: 0.45rem;
 }
 .page-title {
     font-family: 'Sora', sans-serif;
-    font-size: 2.4rem;
-    font-weight: 800;
+    font-size: 1.75rem;
+    font-weight: 700;
     color: #ECFCF3;
-    letter-spacing: -0.8px;
-    line-height: 1.08;
+    letter-spacing: -0.4px;
+    line-height: 1.15;
 }
-.page-title-accent {
-    display: block;
-    width: 52px;
-    height: 3px;
-    background: linear-gradient(90deg, #2E7E56, #6ECDA0, #8FE0B8);
-    border-radius: 2px;
-    margin: 0.55rem auto 0.9rem auto;
-}
+.page-title-accent { display: none; }
 .page-subtitle {
     font-family: 'Inter', sans-serif;
-    font-size: 0.95rem;
-    font-weight: 400;
+    font-size: 0.92rem;
     color: #4FB489;
     line-height: 1.6;
+    margin: 0.4rem auto 0 auto;
+    max-width: 560px;
 }
 
 /* ── Info banner ─────────────────────────────────────────── */
 .info-banner {
-    background: linear-gradient(135deg, #1E2D13 0%, #153D2E 100%);
+    background: rgba(21,61,46,0.45);
     border: 1px solid #1B4B38;
-    border-left: 4px solid #3C9C6E;
+    border-left: 3px solid #3C9C6E;
     border-radius: 12px;
-    padding: 1rem 1.3rem;
-    margin-bottom: 1.5rem;
+    padding: 0.9rem 1.2rem;
+    margin-bottom: 1.4rem;
 }
 .info-banner p {
     font-family: 'Inter', sans-serif;
-    font-size: 0.86rem;
+    font-size: 0.85rem;
     color: #8FE0B8;
-    margin: 0.3rem 0;
-    line-height: 1.65;
+    margin: 0.25rem 0;
+    line-height: 1.6;
 }
 .info-banner em { color: #C6EFDA; font-style: italic; }
 .info-banner strong { color: #D9F7E6; font-weight: 600; }
@@ -244,37 +220,23 @@ html, body, .stApp,
 .section-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-family: 'Inter', sans-serif;
     font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: #3C9C6E;
-    margin: 1.6rem 0 0.9rem 0;
+    margin: 1.5rem 0 0.8rem 0;
 }
 .section-label::after {
     content: '';
     flex: 1;
     height: 1px;
-    background: linear-gradient(90deg, #1B4B38, transparent);
+    background: #153D2E;
 }
 
-/* ── Match cards (cream, for profile saved lists) ────────── */
-.match-card {
-    background: #F1FAF6;
-    border-radius: 14px;
-    border-left: 4px solid #3C9C6E;
-    padding: 1.2rem 1.4rem 1.1rem 1.4rem;
-    margin-bottom: 0.9rem;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-}
-.match-card-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 0.6rem;
-}
+/* ── Avatars ─────────────────────────────────────────────── */
 .avatar {
     width: 44px;
     height: 44px;
@@ -283,55 +245,80 @@ html, body, .stApp,
     color: #ECFCF3;
     font-family: 'Sora', sans-serif;
     font-size: 0.85rem;
-    font-weight: 800;
+    font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     letter-spacing: 0.5px;
 }
+.avatar-img {
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 2px solid #246142;
+    display: block;
+}
+
+/* ── Cards (unified dark style) ──────────────────────────── */
+.match-card {
+    background: rgba(21,61,46,0.38);
+    border: 1px solid #1B4B38;
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.15s, background 0.15s;
+}
+.match-card:hover {
+    border-color: #2E7E56;
+    background: rgba(21,61,46,0.55);
+}
+.match-card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0.5rem;
+}
 .match-card-name {
     font-family: 'Inter', sans-serif;
-    font-size: 1.02rem;
+    font-size: 0.98rem;
     font-weight: 700;
-    color: #0D2E22;
-    line-height: 1.25;
+    color: #ECFCF3;
+    line-height: 1.3;
 }
 .match-card-meta {
     font-family: 'Inter', sans-serif;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     font-weight: 500;
-    color: #2E7E56;
+    color: #4FB489;
     margin-top: 3px;
     line-height: 1.4;
 }
 .match-card-research {
     font-family: 'Inter', sans-serif;
     font-size: 0.84rem;
-    color: #1B4B38;
+    color: #8FE0B8;
     line-height: 1.65;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.3rem;
 }
 .match-card-email {
     font-family: 'Inter', sans-serif;
     font-size: 0.76rem;
-    color: #3C9C6E;
-    margin-top: 4px;
+    color: #6ECDA0;
 }
 
-/* ── Dark candidate cards (below chat response) ──────────── */
 .dark-card {
-    background: linear-gradient(135deg, #162010 0%, #1E2D13 60%, #153D2E 100%);
+    background: rgba(21,61,46,0.38);
     border: 1px solid #1B4B38;
-    border-left: 3px solid #2E7E56;
     border-radius: 12px;
-    padding: 0.9rem 1.1rem;
+    padding: 0.85rem 1.05rem;
     margin-bottom: 6px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.3);
+    transition: border-color 0.15s;
 }
+.dark-card:hover { border-color: #2E7E56; }
 .dark-card-name {
     font-family: 'Inter', sans-serif;
-    font-size: 0.95rem;
+    font-size: 0.94rem;
     font-weight: 700;
     color: #ECFCF3;
     line-height: 1.3;
@@ -339,7 +326,7 @@ html, body, .stApp,
 .dark-card-meta {
     font-family: 'Inter', sans-serif;
     font-size: 0.76rem;
-    color: #6ECDA0;
+    color: #4FB489;
     margin-top: 3px;
 }
 .dark-card-research {
@@ -350,124 +337,259 @@ html, body, .stApp,
     line-height: 1.6;
 }
 
+/* ── Feed cards (home page) ──────────────────────────────── */
+.feed-card {
+    background: rgba(21,61,46,0.38);
+    border: 1px solid #1B4B38;
+    border-radius: 14px;
+    padding: 1rem 1.2rem 0.9rem 1.2rem;
+    margin-bottom: 0.8rem;
+    transition: border-color 0.15s, background 0.15s;
+}
+.feed-card:hover {
+    border-color: #2E7E56;
+    background: rgba(21,61,46,0.55);
+}
+.feed-top {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+.feed-who { flex: 1; min-width: 0; }
+.feed-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #ECFCF3;
+    line-height: 1.25;
+}
+.feed-meta {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.74rem;
+    color: #4FB489;
+    margin-top: 2px;
+}
+.feed-time {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #3C9C6E;
+    white-space: nowrap;
+    align-self: flex-start;
+    padding-top: 3px;
+}
+.feed-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.96rem;
+    font-weight: 600;
+    color: #D9F7E6;
+    margin-top: 0.7rem;
+    line-height: 1.45;
+}
+.feed-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    color: #8FE0B8;
+    line-height: 1.65;
+    margin-top: 0.35rem;
+}
+.feed-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 0.65rem;
+}
+.type-pill {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #6ECDA0;
+    background: rgba(60,156,110,0.14);
+    border: 1px solid rgba(60,156,110,0.35);
+    border-radius: 5px;
+    padding: 2px 8px;
+}
+.match-pill {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #0D2E22;
+    background: #8FE0B8;
+    border-radius: 999px;
+    padding: 2px 10px;
+}
+
 /* ── Tag chips ───────────────────────────────────────────── */
 .tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.tag-chip {
+.tag-chip, .tag-chip-dark {
     display: inline-block;
-    background: #E8F5D8;
-    border: 1.5px solid #8FE0B8;
-    color: #153D2E !important;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.71rem;
-    font-weight: 700;
-    padding: 3px 11px;
-    border-radius: 20px;
-    white-space: nowrap;
-    letter-spacing: 0.01em;
-}
-.tag-chip-dark {
-    display: inline-block;
-    background: rgba(60,156,110,0.2);
-    border: 1.5px solid #246142;
+    background: rgba(60,156,110,0.16);
+    border: 1px solid rgba(60,156,110,0.4);
     color: #8FE0B8 !important;
     font-family: 'Inter', sans-serif;
     font-size: 0.71rem;
-    font-weight: 700;
+    font-weight: 600;
     padding: 3px 11px;
-    border-radius: 20px;
+    border-radius: 999px;
     white-space: nowrap;
-    letter-spacing: 0.01em;
 }
 
 /* ── Post cards ──────────────────────────────────────────── */
 .post-card {
-    background: linear-gradient(135deg, #162010 0%, #1E2D13 100%);
+    background: rgba(21,61,46,0.38);
     border: 1px solid #1B4B38;
     border-radius: 12px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.8rem;
+    padding: 0.95rem 1.15rem;
+    margin-bottom: 0.7rem;
 }
 .post-type-badge {
     display: inline-block;
     font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
+    font-size: 0.66rem;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #6ECDA0;
-    background: rgba(60,156,110,0.18);
-    border: 1px solid #246142;
-    border-radius: 4px;
+    background: rgba(60,156,110,0.14);
+    border: 1px solid rgba(60,156,110,0.35);
+    border-radius: 5px;
     padding: 2px 8px;
     margin-bottom: 0.5rem;
 }
 .post-title {
     font-family: 'Inter', sans-serif;
-    font-size: 0.97rem;
+    font-size: 0.95rem;
     font-weight: 700;
     color: #ECFCF3;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.3rem;
     line-height: 1.4;
 }
 .post-content {
     font-family: 'Inter', sans-serif;
-    font-size: 0.86rem;
+    font-size: 0.85rem;
     color: #8FE0B8;
-    line-height: 1.7;
+    line-height: 1.65;
 }
 .post-date {
     font-family: 'Inter', sans-serif;
     font-size: 0.7rem;
     color: #3C9C6E;
-    margin-top: 0.5rem;
+    margin-top: 0.45rem;
+}
+
+/* ── Document rows ───────────────────────────────────────── */
+.doc-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(21,61,46,0.38);
+    border: 1px solid #1B4B38;
+    border-radius: 12px;
+    padding: 0.7rem 1rem;
+    margin-bottom: 6px;
+}
+.doc-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    background: rgba(60,156,110,0.15);
+    border: 1px solid rgba(60,156,110,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #6ECDA0;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+/* ── Post images ─────────────────────────────────────────── */
+.post-img {
+    display: block;
+    max-width: 100%;
+    max-height: 340px;
+    border-radius: 10px;
+    border: 1px solid #1B4B38;
+    margin-top: 0.6rem;
+    object-fit: cover;
+}
+.doc-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.87rem;
+    font-weight: 600;
+    color: #ECFCF3;
+    line-height: 1.3;
+    word-break: break-all;
+}
+.doc-meta {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #4FB489;
+    margin-top: 2px;
 }
 
 /* ── Profile hero ────────────────────────────────────────── */
 .profile-hero {
-    background: linear-gradient(135deg, #092219 0%, #1E2D13 50%, #153D2E 100%);
+    background: rgba(21,61,46,0.38);
     border: 1px solid #1B4B38;
     border-radius: 16px;
-    padding: 2rem 2rem;
-    margin-bottom: 1.5rem;
+    padding: 1.6rem 1.8rem;
+    margin-bottom: 1.4rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    text-align: left;
+}
+.profile-hero-center {
+    background: rgba(21,61,46,0.38);
+    border: 1px solid #1B4B38;
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 1.4rem;
     text-align: center;
 }
 .profile-avatar-lg {
-    width: 76px;
-    height: 76px;
+    width: 74px;
+    height: 74px;
     border-radius: 50%;
     background: linear-gradient(135deg, #246142 0%, #4FB489 100%);
     color: #ECFCF3;
     font-family: 'Sora', sans-serif;
-    font-size: 1.55rem;
+    font-size: 1.5rem;
     font-weight: 800;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 1rem auto;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.35), 0 0 0 4px rgba(60,156,110,0.2);
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px rgba(60,156,110,0.25);
 }
 .profile-name {
     font-family: 'Sora', sans-serif;
-    font-size: 1.65rem;
-    font-weight: 800;
+    font-size: 1.45rem;
+    font-weight: 700;
     color: #ECFCF3;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.2rem;
 }
 .profile-meta {
     font-family: 'Inter', sans-serif;
-    font-size: 0.88rem;
+    font-size: 0.86rem;
     color: #6ECDA0;
+    line-height: 1.55;
 }
 
 /* ── Auth card ───────────────────────────────────────────── */
 .auth-panel {
-    background: linear-gradient(135deg, #1E2D13 0%, #153D2E 100%);
+    background: rgba(21,61,46,0.38);
     border: 1px solid #1B4B38;
     border-radius: 16px;
-    padding: 2rem 2.2rem;
-    max-width: 440px;
+    padding: 1.8rem 2rem;
+    max-width: 460px;
     margin: 0 auto;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
 }
 
 /* ── Streamlit widget overrides ──────────────────────────── */
@@ -489,6 +611,7 @@ html, body, .stApp,
 [data-testid="stTextInput"] label,
 [data-testid="stTextArea"] label,
 [data-testid="stSelectbox"] label,
+[data-testid="stFileUploader"] label,
 [data-testid="stRadio"] label {
     color: #4FB489 !important;
     font-family: 'Inter', sans-serif !important;
@@ -502,11 +625,19 @@ html, body, .stApp,
     border-radius: 10px !important;
     color: #C6EFDA !important;
 }
+[data-testid="stFileUploader"] section {
+    background-color: #092219 !important;
+    border: 1.5px dashed #1B4B38 !important;
+    border-radius: 12px !important;
+}
+[data-testid="stFileUploader"] section * { color: #4FB489 !important; }
+[data-testid="stFileUploader"] small { color: #3C9C6E !important; }
 
 /* Buttons */
 [data-testid="stButton"] > button[kind="primary"],
-[data-testid="stFormSubmitButton"] > button {
-    background: linear-gradient(135deg, #246142, #2E7E56) !important;
+[data-testid="stFormSubmitButton"] > button,
+[data-testid="stDownloadButton"] > button {
+    background: #2E7E56 !important;
     color: #ECFCF3 !important;
     border: none !important;
     border-radius: 10px !important;
@@ -514,15 +645,15 @@ html, body, .stApp,
     font-weight: 600 !important;
     font-size: 0.88rem !important;
     padding: 0.5rem 1.1rem !important;
-    transition: all 0.15s !important;
+    transition: background 0.15s !important;
 }
 [data-testid="stButton"] > button[kind="primary"]:hover,
-[data-testid="stFormSubmitButton"] > button:hover {
-    background: linear-gradient(135deg, #2E7E56, #3C9C6E) !important;
-    box-shadow: 0 2px 8px rgba(46,126,86,0.35) !important;
+[data-testid="stFormSubmitButton"] > button:hover,
+[data-testid="stDownloadButton"] > button:hover {
+    background: #3C9C6E !important;
 }
 [data-testid="stButton"] > button[kind="secondary"] {
-    background: rgba(36,97,66,0.15) !important;
+    background: transparent !important;
     color: #6ECDA0 !important;
     border: 1.5px solid #246142 !important;
     border-radius: 10px !important;
@@ -531,7 +662,7 @@ html, body, .stApp,
     font-size: 0.88rem !important;
 }
 [data-testid="stButton"] > button[kind="secondary"]:hover {
-    background: rgba(36,97,66,0.28) !important;
+    background: rgba(36,97,66,0.22) !important;
     color: #8FE0B8 !important;
 }
 [data-testid="stButton"] > button {
@@ -541,12 +672,10 @@ html, body, .stApp,
 }
 
 /* Tabs */
-[data-testid="stTabs"] {
-    border-bottom: 1px solid #153D2E !important;
-}
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
     background: transparent !important;
     gap: 2px !important;
+    border-bottom: 1px solid #153D2E !important;
 }
 [data-testid="stTabs"] [data-baseweb="tab"] {
     color: #4FB489 !important;
@@ -555,43 +684,36 @@ html, body, .stApp,
     font-weight: 500 !important;
     background: transparent !important;
     border-radius: 8px 8px 0 0 !important;
-    padding: 0.5rem 1.1rem !important;
+    padding: 0.5rem 1rem !important;
 }
 [data-testid="stTabs"] [aria-selected="true"] {
     color: #ECFCF3 !important;
-    font-weight: 700 !important;
-    background: rgba(60,156,110,0.14) !important;
-    border-bottom: 3px solid #3C9C6E !important;
+    font-weight: 600 !important;
+    border-bottom: 2px solid #3C9C6E !important;
 }
-[data-testid="stTabPanel"] {
-    padding-top: 1.2rem !important;
-}
+[data-testid="stTabPanel"] { padding-top: 1.1rem !important; }
 
 /* Radio */
-[data-testid="stRadio"] > div { flex-direction: row !important; gap: 1rem !important; }
+[data-testid="stRadio"] > div { flex-direction: row !important; gap: 0.9rem !important; flex-wrap: wrap !important; }
 [data-testid="stRadio"] label { color: #8FE0B8 !important; }
 
-/* Alerts */
+/* Alerts / spinner / caption */
 [data-testid="stAlert"] {
     border-radius: 10px !important;
     font-family: 'Inter', sans-serif !important;
 }
-
-/* Spinner */
 [data-testid="stSpinner"] p {
     font-family: 'Inter', sans-serif !important;
     color: #4FB489 !important;
     font-size: 0.88rem !important;
 }
-
-/* Caption */
 [data-testid="stCaptionContainer"] p {
     color: #3C9C6E !important;
     font-family: 'Inter', sans-serif !important;
-    font-size: 0.73rem !important;
+    font-size: 0.74rem !important;
 }
 
-/* ── Chat UI ──────────────────────────────────────────────── */
+/* ── Chat UI ─────────────────────────────────────────────── */
 [data-testid="stChatMessage"] {
     background: transparent !important;
     border: none !important;
@@ -611,14 +733,13 @@ html, body, .stApp,
     margin-top: 1.2rem !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] {
-    background: linear-gradient(135deg, #1B4B38, #246142) !important;
+    background: #1B4B38 !important;
     color: #ECFCF3 !important;
-    border-radius: 18px 18px 4px 18px !important;
-    padding: 0.7rem 1.1rem !important;
+    border-radius: 16px 16px 4px 16px !important;
+    padding: 0.65rem 1.05rem !important;
     max-width: 82% !important;
     font-family: 'Inter', sans-serif !important;
     font-size: 0.92rem !important;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p {
     color: #ECFCF3 !important;
@@ -643,7 +764,7 @@ html, body, .stApp,
     font-family: 'Inter', sans-serif !important;
     color: #C6EFDA !important;
     font-size: 0.92rem !important;
-    line-height: 1.8 !important;
+    line-height: 1.75 !important;
 }
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h2,
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid="stMarkdownContainer"] h3 {
@@ -681,7 +802,6 @@ div:has([data-testid="stChatInput"]) {
 [data-testid="stChatInput"] > div:focus-within,
 [data-testid="stChatInputContainer"]:focus-within {
     border-color: #3C9C6E !important;
-    box-shadow: 0 0 0 3px rgba(36,97,66,0.1) !important;
 }
 [data-testid="stChatInput"] textarea {
     background-color: #092219 !important;
@@ -691,28 +811,27 @@ div:has([data-testid="stChatInput"]) {
 }
 [data-testid="stChatInput"] textarea::placeholder { color: #246142 !important; }
 [data-testid="stChatInput"] button {
-    background: linear-gradient(135deg, #246142, #2E7E56) !important;
+    background: #2E7E56 !important;
     border-radius: 10px !important;
 }
 
-/* ── Scrollbar ────────────────────────────────────────────── */
+/* ── Scrollbar / divider ─────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #153D2E; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: #246142; }
 
-/* ── Divider ──────────────────────────────────────────────── */
 .thin-divider {
     border: none;
-    border-top: 1px solid #1E2D13;
+    border-top: 1px solid #153D2E;
     margin: 1.2rem 0;
 }
 
-/* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 700px) {
     .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
-    .page-title { font-size: 1.9rem; }
-    .match-card { padding: 1rem 1.1rem; }
+    .landing-title { font-size: 2rem; }
+    .page-title { font-size: 1.4rem; }
+    .profile-hero { flex-direction: column; }
 }
 </style>
 """
@@ -723,6 +842,30 @@ def get_initials(name: str) -> str:
     if len(parts) >= 2:
         return (parts[0][0] + parts[-1][0]).upper()
     return name[:2].upper() if name else "?"
+
+
+def avatar_html(name: str, photo_b64=None, mime="image/jpeg",
+                size=44, font_size="0.85rem") -> str:
+    """Round avatar — photo if available, otherwise colored initials."""
+    if photo_b64:
+        return (f'<img class="avatar-img" src="data:{mime};base64,{photo_b64}" '
+                f'style="width:{size}px;height:{size}px;" alt=""/>')
+    return (f'<div class="avatar" style="width:{size}px;height:{size}px;'
+            f'font-size:{font_size};">{get_initials(name)}</div>')
+
+
+def time_ago(iso_str: str) -> str:
+    """'2026-07-06 14:20:00' → '2d ago' (SQLite datetime('now') is UTC)."""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("T", " ")[:19])
+        delta = datetime.now(timezone.utc).replace(tzinfo=None) - dt
+        s = int(delta.total_seconds())
+        if s < 3600:        return f"{max(s // 60, 1)}m ago"
+        if s < 86400:       return f"{s // 3600}h ago"
+        if s < 86400 * 30:  return f"{s // 86400}d ago"
+        return iso_str[:10]
+    except (ValueError, AttributeError):
+        return (iso_str or "")[:10]
 
 
 def auth_headers():
@@ -778,11 +921,11 @@ def render_tag_chips(tags, dark=False):
     return f'<div class="tag-row">{chips}</div>'
 
 
-def page_header(title: str, subtitle: str = ""):
+def page_header(title: str, subtitle: str = "", kicker: str = ""):
     st.markdown(
         f'<div class="page-hero">'
-        f'<div class="page-title">{title}</div>'
-        f'<div class="page-title-accent"></div>'
+        + (f'<div class="page-kicker">{kicker}</div>' if kicker else "")
+        + f'<div class="page-title">{title}</div>'
         + (f'<div class="page-subtitle">{subtitle}</div>' if subtitle else "")
         + "</div>",
         unsafe_allow_html=True,

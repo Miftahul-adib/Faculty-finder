@@ -2,8 +2,10 @@ fastapi
 uvicorn[standard]
 sentence-transformers
 huggingface_hub>=0.23.0
+openai>=1.40.0
 numpy
 python-dotenv
 pydantic
 streamlit
 requests
+pillow
