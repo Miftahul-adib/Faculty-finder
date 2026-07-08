@@ -2,11 +2,14 @@
   "name": "Python 3",
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
   "customizations": {
     "codespaces": {
       "openFiles": [
         "README.md",
-        "frontend/app.py"
+        "frontend/src/App.jsx"
       ]
     },
     "vscode": {
@@ -17,17 +20,22 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; (cd frontend && npm install); echo '✅ Packages installed and Requirements met'",
   "postAttachCommand": {
-    "server": "streamlit run frontend/app.py --server.enableCORS false --server.enableXsrfProtection false"
+    "backend": "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000",
+    "frontend": "cd frontend && npm run dev -- --host 0.0.0.0"
   },
   "portsAttributes": {
-    "8501": {
+    "5173": {
       "label": "Application",
       "onAutoForward": "openPreview"
+    },
+    "8000": {
+      "label": "Backend API"
     }
   },
   "forwardPorts": [
-    8501
+    5173,
+    8000
   ]
 }

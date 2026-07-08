@@ -1,25 +1,54 @@
 version: "3.9"
 
 services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=123456
+      - MYSQL_DATABASE=faculty_finder
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   backend:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Overrides the .env values (which point at localhost for native/local
+      # dev) so the container reaches the mysql service over the compose
+      # network instead.
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=123456
+      - MYSQL_DATABASE=faculty_finder
+    depends_on:
+      mysql:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
 
   frontend:
-    image: python:3.11-slim
-    working_dir: /app
-    command: >
-      sh -c "pip install -q streamlit requests && streamlit run app.py --server.port 8501 --server.address 0.0.0.0"
+    build: ./frontend
     ports:
-      - "8501:8501"
-    volumes:
-      - ./frontend:/app
+      - "8501:80"
     environment:
-      - BACKEND_URL=http://backend:8000
+      # Must be reachable from the browser (not the Docker network), since
+      # the React app calls this URL client-side.
+      - BACKEND_URL=http://localhost:8000
     depends_on:
       - backend
+
+volumes:
+  mysql_data:

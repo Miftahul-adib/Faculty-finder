@@ -1,0 +1,46 @@
+.profile-hero {
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+.profile-hero .avatar-lg { margin: 0 auto 1rem; position: relative; }
+.profile-name { font-family: var(--font-display); font-size: 1.6rem; font-weight: 800; margin-bottom: 0.3rem; position: relative; }
+.profile-meta { font-size: 0.88rem; color: var(--text-muted); position: relative; }
+
+.post-card {
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  margin-bottom: 0.8rem;
+}
+.post-type-badge {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+.post-title { font-weight: 700; font-size: 0.96rem; margin-bottom: 0.35rem; line-height: 1.4; position: relative; }
+.post-content { font-size: 0.86rem; color: var(--text-muted); line-height: 1.7; position: relative; }
+.post-date { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.5rem; position: relative; }
+
+.row-with-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.row-with-action > *:first-child { flex: 1; min-width: 0; }
+
+.tag-suggest-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 0.7rem;
+}
+@media (max-width: 560px) { .tag-suggest-grid { grid-template-columns: 1fr; } }

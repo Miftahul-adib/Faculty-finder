@@ -6,13 +6,14 @@ Embeddings now use HF Inference API — no sentence-transformers / torch needed.
 """
 # backend/rag.py
 
-import os, sqlite3, struct, gc, time
+import os, struct, gc, time
 from collections import defaultdict
 from dotenv import load_dotenv
 import numpy as np
 from huggingface_hub import InferenceClient, login as hf_login
 import requests
 import json
+from db import get_conn, col_exists
 
 load_dotenv()
 
@@ -25,7 +26,6 @@ USE_DEEPSEEK       = os.getenv("USE_DEEPSEEK", "true").lower() == "true"
 DEEPSEEK_MODEL     = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 LLM_MODEL          = os.getenv("LLM_MODEL", "deepseek-chat")
 EMBED_MODEL_NAME   = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
-DB_PATH            = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
 TOP_K              = 25
 DEBUG              = os.getenv("DEBUG", "false").lower() == "true"
 MAX_RETRIES        = 2
@@ -35,15 +35,16 @@ _MAX_TOKENS_ANSWER = 5000
 # ══════════════════════════════════════════════════════════════════════════
 #  CLIENT INITIALIZATION
 # ══════════════════════════════════════════════════════════════════════════
+hf_login(token=HF_TOKEN, add_to_git_credential=False)
+hf_client = InferenceClient(token=HF_TOKEN)  # used for embeddings regardless of LLM backend
+
 if USE_DEEPSEEK:
     if not DEEPSEEK_API_KEY:
         raise ValueError("DEEPSEEK_API_KEY environment variable is required")
-    print(f"✓ Using DeepSeek API | model: {DEEPSEEK_MODEL}")
+    print(f"[OK] Using DeepSeek API | model: {DEEPSEEK_MODEL}")
     deepseek_client = None  # Will use requests directly
 else:
-    hf_login(token=HF_TOKEN, add_to_git_credential=False)
-    hf_client = InferenceClient(token=HF_TOKEN)
-    print(f"✓ Using HuggingFace | model: {LLM_MODEL}")
+    print(f"[OK] Using HuggingFace | model: {LLM_MODEL}")
 
 print(f"Embedding model : {EMBED_MODEL_NAME} (via HF Inference API)")
 
@@ -150,34 +151,25 @@ def hf_embed(texts: list) -> np.ndarray:
     return arr
 
 # ══════════════════════════════════════════════════════════════════════════
-#  CELL 2 — DB CONNECTION + SCHEMA SETUP
+#  CELL 2 — DB SCHEMA SETUP  (connection comes from db.get_conn — MySQL)
 # ══════════════════════════════════════════════════════════════════════════
-def get_conn() -> sqlite3.Connection:
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    return con
-
-def col_exists(con, table: str, col: str) -> bool:
-    return col in [r[1] for r in con.execute(f"PRAGMA table_info('{table}')").fetchall()]
-
 def setup_db():
     """Add embedding column if missing. Print quick stats. Mirrors Cell 2."""
     with get_conn() as con:
         if not col_exists(con, "faculty", "embedding"):
-            con.execute("ALTER TABLE faculty ADD COLUMN embedding BLOB")
+            con.execute("ALTER TABLE faculty ADD COLUMN embedding LONGBLOB")
             con.commit()
             print("  + faculty.embedding column added")
         else:
             print("  faculty.embedding column already present")
 
-        total   = con.execute("SELECT COUNT(*) FROM faculty").fetchone()[0]
+        total   = con.execute("SELECT COUNT(*) AS n FROM faculty").fetchone()["n"]
         has_sum = con.execute(
-            "SELECT COUNT(*) FROM faculty WHERE research_summary IS NOT NULL AND TRIM(research_summary) != ''"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM faculty WHERE research_summary IS NOT NULL AND TRIM(research_summary) != ''"
+        ).fetchone()["n"]
         has_emb = con.execute(
-            "SELECT COUNT(*) FROM faculty WHERE embedding IS NOT NULL"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM faculty WHERE embedding IS NOT NULL"
+        ).fetchone()["n"]
 
     print(f"\nFaculty total          : {total}")
     print(f"With research_summary  : {has_sum}  ({100*has_sum//max(total,1)}%)")
@@ -228,7 +220,7 @@ def ensure_embeddings():
 
     for start in range(0, total_p, 64):
         batch_ids = pending[start:start+64]
-        ph = ",".join("?" * len(batch_ids))
+        ph = ",".join(["%s"] * len(batch_ids))
 
         with get_conn() as con:
             rows = con.execute(
@@ -250,7 +242,7 @@ def ensure_embeddings():
         with get_conn() as con:
             for row, vec in zip(rows, vecs):
                 con.execute(
-                    "UPDATE faculty SET embedding=? WHERE id=?",
+                    "UPDATE faculty SET embedding=%s WHERE id=%s",
                     (vec_to_blob(vec), row["id"])
                 )
             con.commit()
@@ -412,7 +404,7 @@ def retrieve_top_faculty(query: str, k: int = TOP_K) -> list:
         print(f"  [RETRIEVAL] top similarity scores: "
               f"{[round(s, 3) for s in top_sims[:5]]} ...")
 
-    ph = ",".join("?" * len(top_ids))
+    ph = ",".join(["%s"] * len(top_ids))
     with get_conn() as con:
         rows = con.execute(f"""
             SELECT
@@ -602,7 +594,7 @@ def ask(query: str) -> str:
     # ── Step 0: Route ────────────────────────────────────────────────────
     print("\n  [STEP 0] Classifying query ...")
     route = classify_query(query)
-    print(f"  → Route: {route.upper()}")
+    print(f"  -> Route: {route.upper()}")
 
     # ── Pipeline 2: Out of scope ─────────────────────────────────────────
     if route == "out_of_scope":
@@ -747,15 +739,15 @@ def setup_phd_db():
     """Add embedding column to phd_students if missing."""
     with get_conn() as con:
         if not col_exists(con, "phd_students", "embedding"):
-            con.execute("ALTER TABLE phd_students ADD COLUMN embedding BLOB")
+            con.execute("ALTER TABLE phd_students ADD COLUMN embedding LONGBLOB")
             con.commit()
             print("  + phd_students.embedding column added")
         else:
             print("  phd_students.embedding column already present")
-        total = con.execute("SELECT COUNT(*) FROM phd_students").fetchone()[0]
+        total = con.execute("SELECT COUNT(*) AS n FROM phd_students").fetchone()["n"]
         has_emb = con.execute(
-            "SELECT COUNT(*) FROM phd_students WHERE embedding IS NOT NULL"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM phd_students WHERE embedding IS NOT NULL"
+        ).fetchone()["n"]
     print(f"PhD students: {total} total, {has_emb} with embeddings")
 
 
@@ -785,7 +777,7 @@ def ensure_phd_embeddings():
 
     for start in range(0, len(pending), 32):
         batch_ids = pending[start:start + 32]
-        ph = ",".join("?" * len(batch_ids))
+        ph = ",".join(["%s"] * len(batch_ids))
         with get_conn() as con:
             rows = con.execute(
                 f"SELECT id, name, department, supervisor, research_area, bio FROM phd_students WHERE id IN ({ph})",
@@ -803,7 +795,7 @@ def ensure_phd_embeddings():
 
         with get_conn() as con:
             for row, vec in zip(rows, vecs):
-                con.execute("UPDATE phd_students SET embedding=? WHERE id=?",
+                con.execute("UPDATE phd_students SET embedding=%s WHERE id=%s",
                             (vec_to_blob(vec), row["id"]))
             con.commit()
 
@@ -836,7 +828,7 @@ def retrieve_top_phd(query: str, k: int = 10) -> list:
     top_ids  = [int(PHD_IDS[i]) for i in top_idx]
     top_sims = [float(sims[i]) for i in top_idx]
 
-    ph = ",".join("?" * len(top_ids))
+    ph = ",".join(["%s"] * len(top_ids))
     with get_conn() as con:
         rows = con.execute(f"""
             SELECT id, name, department, supervisor, research_area, bio, email, year_enrolled
@@ -910,7 +902,7 @@ def ask_phd(query: str) -> dict:
 
     print("  [STEP 0] Routing query...")
     route = classify_query_phd(query)
-    print(f"  → Route: {route.upper()}")
+    print(f"  -> Route: {route.upper()}")
 
     if route == "out_of_scope":
         return {"answer": PHD_OUT_OF_SCOPE_MSG, "candidates": []}

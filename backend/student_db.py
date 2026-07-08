@@ -1,122 +1,126 @@
-import sqlite3, os, hashlib, secrets
+import hashlib, secrets
 from datetime import datetime, timedelta
 import re
-
-DB_PATH = os.getenv("DB_PATH", "/app/data/Faculty_database.db")
-
-
-def get_conn():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    return con
+from db import get_conn, col_exists, IntegrityError
 
 
 def setup_student_db():
     with get_conn() as con:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS students (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                university TEXT DEFAULT 'SUST',
-                department TEXT DEFAULT '',
-                year TEXT DEFAULT '',
-                bio TEXT DEFAULT '',
-                research_interests TEXT DEFAULT '',
-                research_summary TEXT DEFAULT '',
-                certifications TEXT DEFAULT '',
-                cv_path TEXT DEFAULT '',
-                created_at TEXT DEFAULT (datetime('now'))
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                salt VARCHAR(64) NOT NULL,
+                university VARCHAR(255) DEFAULT 'SUST',
+                department VARCHAR(255) DEFAULT '',
+                year VARCHAR(50) DEFAULT '',
+                bio TEXT NULL,
+                research_interests TEXT NULL,
+                research_summary TEXT NULL,
+                certifications TEXT NULL,
+                cv_path VARCHAR(500) DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS phd_students (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT DEFAULT '',
-                university TEXT DEFAULT 'SUST',
-                department TEXT DEFAULT '',
-                supervisor TEXT DEFAULT '',
-                research_area TEXT DEFAULT '',
-                bio TEXT DEFAULT '',
-                year_enrolled TEXT DEFAULT ''
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) DEFAULT '',
+                university VARCHAR(255) DEFAULT 'SUST',
+                department VARCHAR(255) DEFAULT '',
+                supervisor VARCHAR(255) DEFAULT '',
+                research_area TEXT NULL,
+                bio TEXT NULL,
+                year_enrolled VARCHAR(50) DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS phd_student_tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phd_student_id INTEGER NOT NULL,
-                tag TEXT NOT NULL,
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                phd_student_id INT NOT NULL,
+                tag VARCHAR(255) NOT NULL,
                 FOREIGN KEY (phd_student_id) REFERENCES phd_students(id)
             );
 
             CREATE TABLE IF NOT EXISTS student_tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                tag TEXT NOT NULL,
-                created_at TEXT DEFAULT (datetime('now')),
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id INT NOT NULL,
+                tag VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
 
             CREATE TABLE IF NOT EXISTS student_posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                content TEXT DEFAULT '',
-                post_type TEXT DEFAULT 'work',
-                created_at TEXT DEFAULT (datetime('now')),
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id INT NOT NULL,
+                title VARCHAR(500) NOT NULL,
+                content TEXT NULL,
+                post_type VARCHAR(50) DEFAULT 'work',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
 
             CREATE TABLE IF NOT EXISTS student_saved_faculty (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                faculty_id INTEGER NOT NULL,
-                added_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(student_id, faculty_id),
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id INT NOT NULL,
+                faculty_id INT NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_saved_faculty (student_id, faculty_id),
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
 
             CREATE TABLE IF NOT EXISTS student_saved_phd (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                phd_student_id INTEGER NOT NULL,
-                added_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(student_id, phd_student_id),
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id INT NOT NULL,
+                phd_student_id INT NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_saved_phd (student_id, phd_student_id),
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
 
             CREATE TABLE IF NOT EXISTS student_saved_students (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                target_student_id INTEGER NOT NULL,
-                added_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(student_id, target_student_id),
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                student_id INT NOT NULL,
+                target_student_id INT NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_saved_students (student_id, target_student_id),
                 FOREIGN KEY (student_id) REFERENCES students(id),
                 FOREIGN KEY (target_student_id) REFERENCES students(id)
             );
 
             CREATE TABLE IF NOT EXISTS sessions (
-                token TEXT PRIMARY KEY,
-                student_id INTEGER NOT NULL,
-                expires_at TEXT NOT NULL,
+                token VARCHAR(255) PRIMARY KEY,
+                student_id INT NOT NULL,
+                expires_at DATETIME NOT NULL,
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
         """)
         con.commit()
+    _migrate_student_columns()
     _seed_phd_students()
 
 
-def _hash_password(password: str, salt: str) -> str:
-    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+def _migrate_student_columns():
+    # `students` may pre-date these columns (added after initial release);
+    # CREATE TABLE IF NOT EXISTS won't backfill them onto an existing table.
+    with get_conn() as con:
+        for col, ddl in (
+            ("research_interests", "TEXT NULL"),
+            ("research_summary", "TEXT NULL"),
+            ("certifications", "TEXT NULL"),
+            ("cv_path", "VARCHAR(500) DEFAULT ''"),
+        ):
+            if not col_exists(con, "students", col):
+                con.execute(f"ALTER TABLE students ADD COLUMN {col} {ddl}")
+        con.commit()
 
 
 _TARGET_PHD_COUNT = 35
 
 def _seed_phd_students():
     with get_conn() as con:
-        existing = con.execute("SELECT COUNT(*) FROM phd_students").fetchone()[0]
+        existing = con.execute("SELECT COUNT(*) AS n FROM phd_students").fetchone()["n"]
         if existing >= _TARGET_PHD_COUNT:
             print(f"  PhD students already seeded ({existing} rows) — skipping.")
             return
@@ -343,12 +347,12 @@ def _seed_phd_students():
     with get_conn() as con:
         for row in phd_data:
             cur = con.execute(
-                "INSERT INTO phd_students (name,email,university,department,supervisor,research_area,bio,year_enrolled) VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO phd_students (name,email,university,department,supervisor,research_area,bio,year_enrolled) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                 row
             )
             phd_id = cur.lastrowid
             for tag in tag_map.get(row[0], []):
-                con.execute("INSERT INTO phd_student_tags (phd_student_id, tag) VALUES (?,?)", (phd_id, tag))
+                con.execute("INSERT INTO phd_student_tags (phd_student_id, tag) VALUES (%s,%s)", (phd_id, tag))
         con.commit()
     print(f"Seeded {len(phd_data)} PhD students")
 
@@ -363,16 +367,20 @@ def validate_signup_inputs(name: str, email: str, password: str) -> tuple:
     # Validate name - only letters and spaces, 2-50 characters
     if not re.match(r'^[a-zA-Z\s]{2,50}$', name.strip()):
         return False, "Full name must contain only letters and spaces (2-50 characters)"
-    
+
     # Validate email format
     if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email.strip()):
         return False, "Invalid email format"
-    
+
     # Validate password length
     if len(password) < 6:
         return False, "Password must be at least 6 characters"
-    
+
     return True, None
+
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────
@@ -381,32 +389,32 @@ def signup(name, email, password, university="SUST", department="", year=""):
     is_valid, error = validate_signup_inputs(name, email, password)
     if not is_valid:
         return {"ok": False, "error": error}
-    
+
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(password, salt)
     try:
         with get_conn() as con:
             con.execute(
-                "INSERT INTO students (name,email,password_hash,salt,university,department,year) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO students (name,email,password_hash,salt,university,department,year) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                 (name.strip(), email.strip(), pw_hash, salt, university, department, year)
             )
             con.commit()
         return {"ok": True}
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         return {"ok": False, "error": "Email already registered"}
 
 
 def login(email, password):
     with get_conn() as con:
-        row = con.execute("SELECT * FROM students WHERE email=?", (email,)).fetchone()
+        row = con.execute("SELECT * FROM students WHERE email=%s", (email,)).fetchone()
     if not row:
         return {"ok": False, "error": "No account with that email"}
     if _hash_password(password, row["salt"]) != row["password_hash"]:
         return {"ok": False, "error": "Incorrect password"}
     token = secrets.token_urlsafe(32)
-    expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+    expires = datetime.utcnow() + timedelta(hours=24)
     with get_conn() as con:
-        con.execute("INSERT INTO sessions (token,student_id,expires_at) VALUES (?,?,?)",
+        con.execute("INSERT INTO sessions (token,student_id,expires_at) VALUES (%s,%s,%s)",
                     (token, row["id"], expires))
         con.commit()
     return {"ok": True, "token": token, "student_id": row["id"], "name": row["name"]}
@@ -414,12 +422,12 @@ def login(email, password):
 
 def verify_token(token):
     with get_conn() as con:
-        row = con.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
+        row = con.execute("SELECT * FROM sessions WHERE token=%s", (token,)).fetchone()
     if not row:
         return None
-    if datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
+    if row["expires_at"] < datetime.utcnow():
         with get_conn() as con:
-            con.execute("DELETE FROM sessions WHERE token=?", (token,))
+            con.execute("DELETE FROM sessions WHERE token=%s", (token,))
             con.commit()
         return None
     return int(row["student_id"])
@@ -427,7 +435,7 @@ def verify_token(token):
 
 def logout(token):
     with get_conn() as con:
-        con.execute("DELETE FROM sessions WHERE token=?", (token,))
+        con.execute("DELETE FROM sessions WHERE token=%s", (token,))
         con.commit()
 
 
@@ -436,39 +444,39 @@ def logout(token):
 def get_student(student_id):
     with get_conn() as con:
         row = con.execute(
-            "SELECT id,name,email,university,department,year,bio,research_interests,research_summary,certifications,cv_path FROM students WHERE id=?",
+            "SELECT id,name,email,university,department,year,bio,research_interests,research_summary,certifications,cv_path FROM students WHERE id=%s",
             (student_id,)
         ).fetchone()
         if not row:
             return None
         student = dict(row)
-        student["tags"]  = [dict(r) for r in con.execute(
-            "SELECT id,tag FROM student_tags WHERE student_id=? ORDER BY created_at DESC", (student_id,)
-        ).fetchall()]
-        student["posts"] = [dict(r) for r in con.execute(
-            "SELECT id,title,content,post_type,created_at FROM student_posts WHERE student_id=? ORDER BY created_at DESC",
+        student["tags"]  = con.execute(
+            "SELECT id,tag FROM student_tags WHERE student_id=%s ORDER BY created_at DESC", (student_id,)
+        ).fetchall()
+        student["posts"] = con.execute(
+            "SELECT id,title,content,post_type,created_at FROM student_posts WHERE student_id=%s ORDER BY created_at DESC",
             (student_id,)
-        ).fetchall()]
+        ).fetchall()
     return student
 
 
 def update_student(student_id, bio=None, university=None, department=None, year=None,
                    research_interests=None, research_summary=None, certifications=None, cv_path=None):
     fields, vals = [], []
-    if bio is not None:                fields.append("bio=?");                vals.append(bio)
-    if university is not None:         fields.append("university=?");         vals.append(university)
-    if department is not None:         fields.append("department=?");         vals.append(department)
-    if year is not None:               fields.append("year=?");               vals.append(year)
-    if research_interests is not None: fields.append("research_interests=?"); vals.append(research_interests)
-    if research_summary is not None:   fields.append("research_summary=?");   vals.append(research_summary)
-    if certifications is not None:     fields.append("certifications=?");     vals.append(certifications)
-    if cv_path is not None:            fields.append("cv_path=?");            vals.append(cv_path)
-    
+    if bio is not None:                fields.append("bio=%s");                vals.append(bio)
+    if university is not None:         fields.append("university=%s");         vals.append(university)
+    if department is not None:         fields.append("department=%s");         vals.append(department)
+    if year is not None:               fields.append("year=%s");               vals.append(year)
+    if research_interests is not None: fields.append("research_interests=%s"); vals.append(research_interests)
+    if research_summary is not None:   fields.append("research_summary=%s");   vals.append(research_summary)
+    if certifications is not None:     fields.append("certifications=%s");     vals.append(certifications)
+    if cv_path is not None:            fields.append("cv_path=%s");            vals.append(cv_path)
+
     if not fields:
         return
     vals.append(student_id)
     with get_conn() as con:
-        con.execute(f"UPDATE students SET {', '.join(fields)} WHERE id=?", vals)
+        con.execute(f"UPDATE students SET {', '.join(fields)} WHERE id=%s", vals)
         con.commit()
 
 
@@ -477,7 +485,7 @@ def update_student(student_id, bio=None, university=None, department=None, year=
 def add_post(student_id, title, content, post_type="work"):
     with get_conn() as con:
         con.execute(
-            "INSERT INTO student_posts (student_id,title,content,post_type) VALUES (?,?,?,?)",
+            "INSERT INTO student_posts (student_id,title,content,post_type) VALUES (%s,%s,%s,%s)",
             (student_id, title, content, post_type)
         )
         con.commit()
@@ -485,7 +493,7 @@ def add_post(student_id, title, content, post_type="work"):
 
 def delete_post(post_id, student_id):
     with get_conn() as con:
-        con.execute("DELETE FROM student_posts WHERE id=? AND student_id=?", (post_id, student_id))
+        con.execute("DELETE FROM student_posts WHERE id=%s AND student_id=%s", (post_id, student_id))
         con.commit()
 
 
@@ -493,13 +501,13 @@ def delete_post(post_id, student_id):
 
 def add_tag(student_id, tag):
     with get_conn() as con:
-        con.execute("INSERT INTO student_tags (student_id,tag) VALUES (?,?)", (student_id, tag))
+        con.execute("INSERT INTO student_tags (student_id,tag) VALUES (%s,%s)", (student_id, tag))
         con.commit()
 
 
 def delete_tag(tag_id, student_id):
     with get_conn() as con:
-        con.execute("DELETE FROM student_tags WHERE id=? AND student_id=?", (tag_id, student_id))
+        con.execute("DELETE FROM student_tags WHERE id=%s AND student_id=%s", (tag_id, student_id))
         con.commit()
 
 
@@ -508,17 +516,17 @@ def delete_tag(tag_id, student_id):
 def save_faculty(student_id, faculty_id):
     try:
         with get_conn() as con:
-            con.execute("INSERT INTO student_saved_faculty (student_id,faculty_id) VALUES (?,?)",
+            con.execute("INSERT INTO student_saved_faculty (student_id,faculty_id) VALUES (%s,%s)",
                         (student_id, faculty_id))
             con.commit()
         return True
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         return False
 
 
 def unsave_faculty(student_id, faculty_id):
     with get_conn() as con:
-        con.execute("DELETE FROM student_saved_faculty WHERE student_id=? AND faculty_id=?",
+        con.execute("DELETE FROM student_saved_faculty WHERE student_id=%s AND faculty_id=%s",
                     (student_id, faculty_id))
         con.commit()
 
@@ -529,16 +537,16 @@ def get_saved_faculty(student_id):
             SELECT f.id, f.name, f.designation, f.department, f.email, f.profile_url
             FROM faculty f
             JOIN student_saved_faculty sf ON f.id = sf.faculty_id
-            WHERE sf.student_id=?
+            WHERE sf.student_id=%s
             ORDER BY sf.added_at DESC
         """, (student_id,)).fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 def get_saved_faculty_ids(student_id):
     with get_conn() as con:
-        return [r[0] for r in con.execute(
-            "SELECT faculty_id FROM student_saved_faculty WHERE student_id=?", (student_id,)
+        return [r["faculty_id"] for r in con.execute(
+            "SELECT faculty_id FROM student_saved_faculty WHERE student_id=%s", (student_id,)
         ).fetchall()]
 
 
@@ -547,17 +555,17 @@ def get_saved_faculty_ids(student_id):
 def save_phd(student_id, phd_student_id):
     try:
         with get_conn() as con:
-            con.execute("INSERT INTO student_saved_phd (student_id,phd_student_id) VALUES (?,?)",
+            con.execute("INSERT INTO student_saved_phd (student_id,phd_student_id) VALUES (%s,%s)",
                         (student_id, phd_student_id))
             con.commit()
         return True
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         return False
 
 
 def unsave_phd(student_id, phd_student_id):
     with get_conn() as con:
-        con.execute("DELETE FROM student_saved_phd WHERE student_id=? AND phd_student_id=?",
+        con.execute("DELETE FROM student_saved_phd WHERE student_id=%s AND phd_student_id=%s",
                     (student_id, phd_student_id))
         con.commit()
 
@@ -568,16 +576,16 @@ def get_saved_phd(student_id):
             SELECT p.id, p.name, p.university, p.department, p.supervisor, p.research_area, p.email
             FROM phd_students p
             JOIN student_saved_phd sp ON p.id = sp.phd_student_id
-            WHERE sp.student_id=?
+            WHERE sp.student_id=%s
             ORDER BY sp.added_at DESC
         """, (student_id,)).fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 def get_saved_phd_ids(student_id):
     with get_conn() as con:
-        return [r[0] for r in con.execute(
-            "SELECT phd_student_id FROM student_saved_phd WHERE student_id=?", (student_id,)
+        return [r["phd_student_id"] for r in con.execute(
+            "SELECT phd_student_id FROM student_saved_phd WHERE student_id=%s", (student_id,)
         ).fetchall()]
 
 
@@ -589,19 +597,19 @@ def save_student_contact(student_id, target_student_id):
     try:
         with get_conn() as con:
             con.execute(
-                "INSERT INTO student_saved_students (student_id,target_student_id) VALUES (?,?)",
+                "INSERT INTO student_saved_students (student_id,target_student_id) VALUES (%s,%s)",
                 (student_id, target_student_id)
             )
             con.commit()
         return True
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         return False
 
 
 def unsave_student_contact(student_id, target_student_id):
     with get_conn() as con:
         con.execute(
-            "DELETE FROM student_saved_students WHERE student_id=? AND target_student_id=?",
+            "DELETE FROM student_saved_students WHERE student_id=%s AND target_student_id=%s",
             (student_id, target_student_id)
         )
         con.commit()
@@ -613,25 +621,24 @@ def get_saved_student_contacts(student_id):
             SELECT s.id, s.name, s.university, s.department, s.bio, s.email
             FROM students s
             JOIN student_saved_students ss ON s.id = ss.target_student_id
-            WHERE ss.student_id=?
+            WHERE ss.student_id=%s
             ORDER BY ss.added_at DESC
         """, (student_id,)).fetchall()
         results = []
-        for row in rows:
-            r = dict(row)
+        for r in rows:
             tags = con.execute(
-                "SELECT tag FROM student_tags WHERE student_id=? ORDER BY created_at DESC LIMIT 5",
+                "SELECT tag FROM student_tags WHERE student_id=%s ORDER BY created_at DESC LIMIT 5",
                 (r["id"],)
             ).fetchall()
-            r["tags"] = [t[0] for t in tags]
+            r["tags"] = [t["tag"] for t in tags]
             results.append(r)
     return results
 
 
 def get_saved_student_ids(student_id):
     with get_conn() as con:
-        return [r[0] for r in con.execute(
-            "SELECT target_student_id FROM student_saved_students WHERE student_id=?", (student_id,)
+        return [r["target_student_id"] for r in con.execute(
+            "SELECT target_student_id FROM student_saved_students WHERE student_id=%s", (student_id,)
         ).fetchall()]
 
 
@@ -640,43 +647,40 @@ def get_saved_student_ids(student_id):
 def _attach_phd_tags(con, rows):
     results = []
     for row in rows:
-        s = dict(row)
         tags = con.execute(
-            "SELECT id, tag FROM phd_student_tags WHERE phd_student_id=?", (s["id"],)
+            "SELECT id, tag FROM phd_student_tags WHERE phd_student_id=%s", (row["id"],)
         ).fetchall()
-        s["tags"] = [{"id": t["id"], "tag": t["tag"]} for t in tags]
-        s["source"] = "phd"
-        results.append(s)
+        row["tags"] = tags
+        row["source"] = "phd"
+        results.append(row)
     return results
 
 
 def _attach_student_tags(con, rows):
     results = []
     for row in rows:
-        s = dict(row)
         tags = con.execute(
-            "SELECT id, tag FROM student_tags WHERE student_id=?", (s["id"],)
+            "SELECT id, tag FROM student_tags WHERE student_id=%s", (row["id"],)
         ).fetchall()
-        s["tags"] = [{"id": t["id"], "tag": t["tag"]} for t in tags]
-        s["source"] = "student"
-        s.setdefault("supervisor", "")
-        s.setdefault("year_enrolled", s.get("year", ""))
-        results.append(s)
+        row["tags"] = tags
+        row["source"] = "student"
+        row.setdefault("supervisor", "")
+        row.setdefault("year_enrolled", row.get("year", ""))
+        results.append(row)
     return results
 
 
 def get_phd_student(phd_id: int):
     with get_conn() as con:
         row = con.execute(
-            "SELECT id,name,email,university,department,supervisor,research_area,bio,year_enrolled FROM phd_students WHERE id=?",
+            "SELECT id,name,email,university,department,supervisor,research_area,bio,year_enrolled FROM phd_students WHERE id=%s",
             (phd_id,)
         ).fetchone()
         if not row:
             return None
-        s = dict(row)
-        tags = con.execute("SELECT id,tag FROM phd_student_tags WHERE phd_student_id=?", (phd_id,)).fetchall()
-        s["tags"] = [{"id": t["id"], "tag": t["tag"]} for t in tags]
-    return s
+        tags = con.execute("SELECT id,tag FROM phd_student_tags WHERE phd_student_id=%s", (phd_id,)).fetchall()
+        row["tags"] = tags
+    return row
 
 
 def search_phd_students(query: str):
@@ -687,8 +691,8 @@ def search_phd_students(query: str):
                             p.supervisor, p.research_area, p.bio, p.year_enrolled
             FROM phd_students p
             LEFT JOIN phd_student_tags t ON p.id = t.phd_student_id
-            WHERE p.name LIKE ? OR p.research_area LIKE ? OR p.bio LIKE ?
-               OR p.department LIKE ? OR t.tag LIKE ?
+            WHERE p.name LIKE %s OR p.research_area LIKE %s OR p.bio LIKE %s
+               OR p.department LIKE %s OR t.tag LIKE %s
         """, (q, q, q, q, q)).fetchall()
 
         student_rows = con.execute("""
@@ -696,7 +700,7 @@ def search_phd_students(query: str):
                             s.bio, s.year
             FROM students s
             INNER JOIN student_tags st ON s.id = st.student_id
-            WHERE s.name LIKE ? OR s.bio LIKE ? OR s.department LIKE ? OR st.tag LIKE ?
+            WHERE s.name LIKE %s OR s.bio LIKE %s OR s.department LIKE %s OR st.tag LIKE %s
         """, (q, q, q, q)).fetchall()
 
         results = _attach_phd_tags(con, phd_rows) + _attach_student_tags(con, student_rows)

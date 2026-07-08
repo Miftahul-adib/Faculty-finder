@@ -5,5 +5,5 @@ huggingface_hub>=0.23.0
 numpy
 python-dotenv
 pydantic
-streamlit
 requests
+mysql-connector-python
