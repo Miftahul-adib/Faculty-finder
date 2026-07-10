@@ -1,0 +1,32 @@
+/* Calm, mostly-flat backdrop — a solid neutral surface with a single soft,
+   static glow in the corner. The cards carry the visual interest; the
+   background should read as "clean studio wall," not wallpaper. */
+.mesh-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.mesh-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  will-change: transform;
+}
+.mesh-blob-a { width: 50vw; height: 50vw; top: -18%; right: -12%; background: var(--bg-blob); }
+.mesh-blob-b { width: 40vw; height: 40vw; bottom: -16%; left: -10%; background: var(--bg-blob); }
+.mesh-blob-c, .mesh-blob-d { display: none; }
+
+.mesh-grain {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.4), transparent 55%);
+  opacity: 0.5;
+}
+:root[data-theme="dark"] .mesh-grain { opacity: 0.15; }
+
+@media (max-width: 720px) {
+  .mesh-blob { filter: blur(80px); }
+}

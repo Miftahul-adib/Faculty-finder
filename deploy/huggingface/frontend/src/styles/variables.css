@@ -1,0 +1,98 @@
+:root {
+  /* ── Monochrome, light ──────────────────────────────────────────
+     Pure black/white palette. All depth comes from opacity, blur
+     and shadow — never hue. Buttons and cards are "liquid glass":
+     translucent, blurred panels with a bright rim-light edge. */
+  --bg: #f4f4f5;
+  --bg-blob: rgba(0, 0, 0, 0.05);
+
+  --surface: rgba(255, 255, 255, 0.55);
+  --surface-2: rgba(255, 255, 255, 0.4);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+
+  --text: #000000;
+  --text-muted: rgba(0, 0, 0, 0.62);
+  --text-dim: rgba(0, 0, 0, 0.42);
+
+  --danger: #000000;
+  --danger-soft: rgba(0, 0, 0, 0.06);
+  --success: #000000;
+
+  --card-on-light: rgba(255, 255, 255, 0.42);
+
+  --radius-sm: 14px;
+  --radius: 20px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 14px 32px rgba(0, 0, 0, 0.14);
+  --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.22);
+  --shadow-glow: 0 0 0 4px rgba(0, 0, 0, 0.08);
+  --rim-light: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+
+  /* Liquid glass — the material for every button and card. Borders use a
+     dark tint (not white) so panels read against the light page instead
+     of vanishing into it; depth comes from the shadow + inset bevel. */
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-bg-strong: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-border-strong: rgba(0, 0, 0, 0.24);
+  --glass-blur: 22px;
+  --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 45%);
+
+  --font-display: "Sora", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --sidebar-w: 260px;
+
+  --btn-primary-bg: #000000;
+  --btn-primary-fg: #ffffff;
+  --hover-overlay: rgba(0, 0, 0, 0.06);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #050505;
+  --bg-blob: rgba(255, 255, 255, 0.06);
+
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-2: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.2)  ;
+
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.66);
+  --text-dim: rgba(255, 255, 255, 0.44);
+
+  --danger: #ffffff;
+  --danger-soft: rgba(255, 255, 255, 0.08);
+  --success: #ffffff;
+
+  --card-on-light: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 14px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+  --rim-light: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-bg-strong: rgba(255, 255, 255, 0.11);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-border-strong: rgba(255, 255, 255, 0.28);
+  --glass-blur: 22px;
+  --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 45%);
+
+  --btn-primary-bg: #ffffff;
+  --btn-primary-fg: #000000;
+  --hover-overlay: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
