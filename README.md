@@ -2,7 +2,7 @@
 
 AI-powered research matchmaking for Shahjalal University of Science and Technology (SUST). Describe a research interest in plain language and get matched with the professors and PhD researchers most relevant to it — semantic search over 611 scraped faculty profiles, not keyword search.
 
-**Live app:** https://faculty-finder-backend-production.up.railway.app
+**Live app:** https://faculty-finder-phi.vercel.app/
 
 ## Features
 
